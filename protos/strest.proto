@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package strest;
+
+service Responder {
+  // Sends a greeting
+  rpc Get(ResponseSpec) returns (ResponseReply) {}
+}
+
+message ResponseSpec {
+  // number of frames to return
+  int32 count = 1;
+  // how many bytes we expect in return.
+  int32 length = 2;
+  // how long (in milliseconds) we want the response to wait.
+  int64 latency = 3;
+}
+
+// The response message containing the greetings
+message ResponseReply {
+  string body = 1;
+}
