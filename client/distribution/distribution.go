@@ -7,24 +7,20 @@ import (
 	"sort"
 )
 
-/**
- * Distribution is a map of percentiles (multiplied by 10) to values.
- * e.g. a latency distribution might be
- * 500  -> 1
- * 900  -> 20
- * 950  -> 30
- * 990  -> 50
- * 999  -> 100
- * 1000 -> 100
- *
- * When a value is requested that no exact value is known for, we'll
- * calculate it's value as a linear extrapolation.
- */
+// Distribution is a map of percentiles (multiplied by 10) to values.
+// e.g. a latency distribution might be
+// 500  -> 1
+// 900  -> 20
+// 950  -> 30
+// 990  -> 50
+// 999  -> 100
+// 1000 -> 100
+//
+// When a value is requested that no exact value is known for, we'll
+// calculate it's value as a linear extrapolation.
 type Distribution map[int]int64
 
-/**
- * Ensure that keys and values are in sorted order.
- */
+// CheckValidity ensures that keys and values are in sorted order.
 func (dist *Distribution) CheckValidity() error {
 	lastSeenKey := 0
 	lastSeenValue := int64(0)
@@ -34,19 +30,17 @@ func (dist *Distribution) CheckValidity() error {
 			lastSeenKey = key
 			lastSeenValue = (*dist)[key]
 		} else {
-			return fmt.Errorf("%d >= %d and %d >= %d did not hold for %s", key, lastSeenKey, (*dist)[key], lastSeenValue, *dist)
+			return fmt.Errorf("%d >= %d and %d >= %d did not hold for %v", key, lastSeenKey, (*dist)[key], lastSeenValue, *dist)
 		}
 	}
 
 	return nil
 }
 
-/**
- * Ensures that a key and value will fit properly into a distribution
- * that doesn't already contain them.
- * If the distribution already contains the key/value pair, then
- * return immediately.
- */
+// CheckKeyValueFits ensures that a key and value will fit properly
+// into a distribution that doesn't already contain them. If the
+// distribution already contains the key/value pair, then
+// return immediately.
 func (dist *Distribution) CheckKeyValueFits(key int, value int64) error {
 	if (*dist)[key] == value {
 		return nil
@@ -73,12 +67,10 @@ func (dist *Distribution) CheckKeyValueFits(key int, value int64) error {
 	return nil
 }
 
-/**
- * Returns the keys in the distribution sorted numerically.
- */
+// SortedKeys returns the keys in the distribution sorted numerically.
 func (dist *Distribution) SortedKeys() []int {
 	var keys = []int{}
-	for key, _ := range *dist {
+	for key := range *dist {
 		keys = append(keys, key)
 	}
 
@@ -87,13 +79,11 @@ func (dist *Distribution) SortedKeys() []int {
 	return keys
 }
 
-/**
- * Returns a key pair that is directly above and below the requested
- * key.
- *
- * Precondition: the Distribution must have hadd AddMinMax() called
- * and pass a CheckValidity() test
- */
+// FindHighLowKeys returns a key pair that is directly above and below the requested
+// key.
+//
+// Precondition: the Distribution must have hadd AddMinMax() called
+// and pass a CheckValidity() test
 func (dist *Distribution) FindHighLowKeys(key int) (int, int) {
 	low := 0
 	high := 0
@@ -114,31 +104,25 @@ func (dist *Distribution) FindHighLowKeys(key int) (int, int) {
 	return high, low
 }
 
-/**
- * If the key doesn't exist, returns a linear extrapolation based on
- * its position.
- */
+// Get returns a linear extrapolation based of the value if the key exists.
 func (dist *Distribution) Get(untrustedKey int) int64 {
 	// Ensures that the key is in the range [0,1000]
 	requested := int(math.Min(math.Max(float64(untrustedKey), 0), 1000))
 	if value, ok := (*dist)[requested]; ok {
 		return value
-	} else {
-		high, low := dist.FindHighLowKeys(requested)
-		highValue := (*dist)[high]
-		lowValue := (*dist)[low]
-
-		// Reminder: percentiles are multiplied by 10, values are not.
-		increment := float64(highValue-lowValue) / (float64(high-low) / float64(10))
-		delta := float64((requested-low)/10) * increment
-
-		return lowValue + int64(delta)
 	}
+	high, low := dist.FindHighLowKeys(requested)
+	highValue := (*dist)[high]
+	lowValue := (*dist)[low]
+
+	// Reminder: percentiles are multiplied by 10, values are not.
+	increment := float64(highValue-lowValue) / (float64(high-low) / float64(10))
+	delta := float64((requested-low)/10) * increment
+
+	return lowValue + int64(delta)
 }
 
-/**
- * Ensures that the Distribution's min/max are set properly.
- */
+// AddMinMax ensures that the Distribution's min/max are set properly.
 func (dist *Distribution) AddMinMax() {
 	// Always set min to 0.
 	(*dist)[0] = 0
@@ -156,14 +140,12 @@ func (dist *Distribution) AddMinMax() {
 	}
 }
 
-/**
- * Given a map of three-digit percentiles to int64 values, returns
- * a validated Distribution.
- *
- * This function expects the percentiles to be mapped from the
- * two-digit space into the three-digit space. so instead of 99.9
- * you'd pass in 999.
- */
+// FromMap takes a map of three-digit percentiles to int64 values and returns
+// a validated Distribution.
+//
+// This function expects the percentiles to be mapped from the
+// two-digit space into the three-digit space. so instead of 99.9
+// you'd pass in 999.
 func FromMap(m map[int]int64) (Distribution, error) {
 	dist := Empty()
 
@@ -175,11 +157,12 @@ func FromMap(m map[int]int64) (Distribution, error) {
 
 	if err := dist.CheckValidity(); err == nil {
 		return dist, nil
-	} else {
-		return nil, err
 	}
+
+	return nil, err
 }
 
+// Empty returns a blank Distribution.
 func Empty() Distribution {
 	return Distribution{}
 }
