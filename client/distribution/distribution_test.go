@@ -16,9 +16,9 @@ var _ = Suite(&DistributionTestSuite{})
 func (*DistributionTestSuite) TestMapKeysAreSorted(c *C) {
 	// Empty distribution has no keys
 	empty := distribution.Empty()
-	c.Assert(empty.SortedKeys(), DeepEquals, []int{})
+	c.Assert(empty.SortedKeys(), DeepEquals, []int32{})
 
-	m := map[int]int64{
+	m := map[int32]int64{
 		200: 200,
 		300: 300,
 		400: 400,
@@ -27,12 +27,12 @@ func (*DistributionTestSuite) TestMapKeysAreSorted(c *C) {
 	dist, err := distribution.FromMap(m)
 	c.Assert(err, IsNil)
 	// Tests that the elements are the same regardless of sorting
-	c.Assert(dist.SortedKeys(), DeepEquals, []int{0, 200, 300, 400, 1000})
+	c.Assert(dist.SortedKeys(), DeepEquals, []int32{0, 200, 300, 400, 1000})
 	c.Assert(dist.CheckValidity(), IsNil)
 }
 
 func (*DistributionTestSuite) TestCheckValueFits(c *C) {
-	m := map[int]int64{
+	m := map[int32]int64{
 		0:    100,
 		1000: 1000,
 	}
@@ -58,7 +58,7 @@ func (*DistributionTestSuite) TestCheckValueFits(c *C) {
 }
 
 func (*DistributionTestSuite) TestCheckValueFits2(c *C) {
-	m := map[int]int64{
+	m := map[int32]int64{
 		0:    100,
 		1000: 1000,
 	}
@@ -76,7 +76,7 @@ func (*DistributionTestSuite) TestCheckValueFits2(c *C) {
 }
 
 func (*DistributionTestSuite) TestFindHighLowKeysLargeValues(c *C) {
-	m := map[int]int64{
+	m := map[int32]int64{
 		0:    0,
 		1000: 1100,
 	}
@@ -85,7 +85,7 @@ func (*DistributionTestSuite) TestFindHighLowKeysLargeValues(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(len(dist), Equals, 2)
 
-	c.Assert(dist.SortedKeys(), DeepEquals, []int{0, 1000})
+	c.Assert(dist.SortedKeys(), DeepEquals, []int32{0, 1000})
 	high, low := dist.FindHighLowKeys(500)
 
 	if low > high {
@@ -101,7 +101,7 @@ func (*DistributionTestSuite) TestFindHighLowKeysLargeValues(c *C) {
 }
 
 func (*DistributionTestSuite) TestFindHighLowKeysSmallValues(c *C) {
-	m := map[int]int64{
+	m := map[int32]int64{
 		500: 100,
 		900: 200,
 	}
@@ -129,7 +129,7 @@ func (*DistributionTestSuite) TestEmpty(c *C) {
 }
 
 func (*DistributionTestSuite) TestCheckKeyValueFits(c *C) {
-	m := map[int]int64{
+	m := map[int32]int64{
 		1000: 30,
 	}
 
@@ -143,7 +143,7 @@ func (*DistributionTestSuite) TestCheckKeyValueFits(c *C) {
 }
 
 func (*DistributionTestSuite) TestMapApi(c *C) {
-	m := map[int]int64{
+	m := map[int32]int64{
 		0:    0,
 		1000: 500,
 	}
@@ -165,7 +165,7 @@ func (*DistributionTestSuite) TestMapApi(c *C) {
 }
 
 func (*DistributionTestSuite) TestMapApiErrors(c *C) {
-	m := map[int]int64{
+	m := map[int32]int64{
 		0:    0,
 		1000: 10,
 	}
@@ -177,7 +177,7 @@ func (*DistributionTestSuite) TestMapApiErrors(c *C) {
 }
 
 func (*DistributionTestSuite) TestExtraploateFromMap(c *C) {
-	m := map[int]int64{
+	m := map[int32]int64{
 		0:    100,
 		200:  2000,
 		1000: 10000,
@@ -193,7 +193,7 @@ func (*DistributionTestSuite) TestExtraploateFromMap(c *C) {
 }
 
 func (*DistributionTestSuite) TestFromMapGood(c *C) {
-	latencyMap := map[int]int64{
+	latencyMap := map[int32]int64{
 		10:  1,
 		500: 1000,
 		900: 2000,
@@ -216,7 +216,7 @@ func (*DistributionTestSuite) TestFromMapGood(c *C) {
 }
 
 func (*DistributionTestSuite) TestFromMapBad(c *C) {
-	m := map[int]int64{
+	m := map[int32]int64{
 		0:   0,
 		500: 200,
 		// 100 doesn't fit the distribution.
@@ -229,7 +229,7 @@ func (*DistributionTestSuite) TestFromMapBad(c *C) {
 }
 
 func (*DistributionTestSuite) TestAddMinMax(c *C) {
-	m := map[int]int64{
+	m := map[int32]int64{
 		100: 100,
 	}
 
@@ -242,7 +242,7 @@ func (*DistributionTestSuite) TestAddMinMax(c *C) {
 }
 
 func (*DistributionTestSuite) TestSmallValues(c *C) {
-	m := map[int]int64{
+	m := map[int32]int64{
 		0:    0,
 		500:  50,
 		1000: 100,

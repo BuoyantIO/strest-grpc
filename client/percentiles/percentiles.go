@@ -7,7 +7,7 @@ import (
 
 // ConvertToBetterPercentile takes a two-digit percentile value
 // and converts it to a three-digit value
-func ConvertToBetterPercentile(p int) int {
+func ConvertToBetterPercentile(p int32) int32 {
 	if p > 100 {
 		return p
 	}
@@ -26,18 +26,18 @@ func ConvertToBetterPercentile(p int) int {
 // p[900] = 200
 // p[950] = 1000
 // p[999] = 20000
-func ParsePercentiles(input string) (map[int]int64, error) {
-	var percentiles map[int]int64
+func ParsePercentiles(input string) (map[int32]int64, error) {
+	var percentiles map[int32]int64
 	var ss []string
 
 	ss = strings.Split(input, ",")
-	percentiles = make(map[int]int64)
+	percentiles = make(map[int32]int64)
 	for _, pair := range ss {
 		z := strings.Split(pair, "=")
 		percentile, errPercentile := strconv.ParseInt(z[0], 10, 32)
 		value, errValue := strconv.ParseInt(z[1], 10, 64)
 		if errPercentile == nil && errValue == nil {
-			percentiles[ConvertToBetterPercentile(int(percentile))] = value
+			percentiles[ConvertToBetterPercentile(int32(percentile))] = value
 		} else {
 			if errPercentile != nil {
 				return nil, errPercentile

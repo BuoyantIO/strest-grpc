@@ -18,11 +18,11 @@ import (
 //
 // When a value is requested that no exact value is known for, we'll
 // calculate it's value as a linear extrapolation.
-type Distribution map[int]int64
+type Distribution map[int32]int64
 
 // CheckValidity ensures that keys and values are in sorted order.
 func (dist *Distribution) CheckValidity() error {
-	lastSeenKey := 0
+	lastSeenKey := int32(0)
 	lastSeenValue := int64(0)
 
 	for _, key := range dist.SortedKeys() {
@@ -41,7 +41,7 @@ func (dist *Distribution) CheckValidity() error {
 // into a distribution that doesn't already contain them. If the
 // distribution already contains the key/value pair, then
 // return immediately.
-func (dist *Distribution) CheckKeyValueFits(key int, value int64) error {
+func (dist *Distribution) CheckKeyValueFits(key int32, value int64) error {
 	if (*dist)[key] == value {
 		return nil
 	}
@@ -68,13 +68,13 @@ func (dist *Distribution) CheckKeyValueFits(key int, value int64) error {
 }
 
 // SortedKeys returns the keys in the distribution sorted numerically.
-func (dist *Distribution) SortedKeys() []int {
-	var keys = []int{}
+func (dist *Distribution) SortedKeys() []int32 {
+	var keys = []int32{}
 	for key := range *dist {
 		keys = append(keys, key)
 	}
 
-	sort.Ints(keys)
+	sortInt32Array(keys)
 
 	return keys
 }
@@ -84,19 +84,18 @@ func (dist *Distribution) SortedKeys() []int {
 //
 // Precondition: the Distribution must have hadd AddMinMax() called
 // and pass a CheckValidity() test
-func (dist *Distribution) FindHighLowKeys(key int) (int, int) {
-	low := 0
-	high := 0
+func (dist *Distribution) FindHighLowKeys(key int32) (int32, int32) {
+	var low, high int32
 
 	keys := dist.SortedKeys()
 
 	for i := range keys {
-		if key < keys[i] {
-			high = keys[i]
+		if key < keys[int(i)] {
+			high = keys[int(i)]
 			// Once you're found high, the low key is directly below it.
 			// This is why there's a precondition that you've called
 			// AddMinMax(), it'll ensure your Distribution has at least two keys.
-			low = keys[i-1]
+			low = keys[int(i)-1]
 			break
 		}
 	}
@@ -105,9 +104,9 @@ func (dist *Distribution) FindHighLowKeys(key int) (int, int) {
 }
 
 // Get returns a linear extrapolation based of the value if the key exists.
-func (dist *Distribution) Get(untrustedKey int) int64 {
+func (dist *Distribution) Get(untrustedKey int32) int64 {
 	// Ensures that the key is in the range [0,1000]
-	requested := int(math.Min(math.Max(float64(untrustedKey), 0), 1000))
+	requested := int32(math.Min(math.Max(float64(untrustedKey), 0), 1000))
 	if value, ok := (*dist)[requested]; ok {
 		return value
 	}
@@ -140,13 +139,17 @@ func (dist *Distribution) AddMinMax() {
 	}
 }
 
+func (dist Distribution) ToMap() map[int32]int64 {
+	return map[int32]int64(dist)
+}
+
 // FromMap takes a map of three-digit percentiles to int64 values and returns
 // a validated Distribution.
 //
 // This function expects the percentiles to be mapped from the
 // two-digit space into the three-digit space. so instead of 99.9
 // you'd pass in 999.
-func FromMap(m map[int]int64) (Distribution, error) {
+func FromMap(m map[int32]int64) (Distribution, error) {
 	dist := Empty()
 
 	for key, value := range m {
@@ -157,12 +160,24 @@ func FromMap(m map[int]int64) (Distribution, error) {
 
 	if err := dist.CheckValidity(); err == nil {
 		return dist, nil
+	} else {
+		return nil, err
 	}
-
-	return nil, err
 }
 
 // Empty returns a blank Distribution.
 func Empty() Distribution {
 	return Distribution{}
+}
+
+// Implementing sort.Interface so we can sort []int32.
+type Int32Slice []int32
+
+func (p Int32Slice) Len() int           { return len(p) }
+func (p Int32Slice) Less(i, j int) bool { return p[i] < p[j] }
+func (p Int32Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+
+func sortInt32Array(numbers []int32) []int32 {
+	sort.Sort(Int32Slice(numbers))
+	return numbers
 }
