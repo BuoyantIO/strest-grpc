@@ -5,15 +5,22 @@ package strest;
 service Responder {
   // Sends a greeting
   rpc Get(ResponseSpec) returns (ResponseReply) {}
+  rpc StreamingGet(stream StreamingResponseSpec) returns (stream ResponseReply) {}
 }
 
 message ResponseSpec {
-  // number of frames to return
-  int32 count = 1;
   // how many bytes we expect in return.
-  int32 length = 2;
+  int32 length = 1;
   // how long (in milliseconds) we want the response to wait.
-  int64 latency = 3;
+  int64 latency = 2;
+}
+
+message StreamingResponseSpec {
+  // how many responses to send.
+  int32 count = 1;
+  // distributions for latency and length
+  map<int32, int64> latencyPercentiles = 4;
+  map<int32, int64> lengthPercentiles = 5;
 }
 
 // The response message containing the greetings
