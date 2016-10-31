@@ -67,6 +67,26 @@ func formatBytes(bytes int64) string {
 	return fmt.Sprintf("%0.1f%s", sz, sizeSuffixes[order])
 }
 
+// Periodically print stats about the request load.
+func logIntervalReport(
+	now time.Time,
+	interval *time.Duration,
+	good, bad, bytes, min, max int64,
+	latencyHist *hdrhistogram.Histogram) {
+	fmt.Printf("%s % 7s %6d/%1d %s %3d [%3d %3d %3d %4d ] %4d\n",
+		now.Format(time.RFC3339),
+		formatBytes(bytes),
+		good,
+		bad,
+		interval,
+		min/1000000,
+		latencyHist.ValueAtQuantile(50)/1000000,
+		latencyHist.ValueAtQuantile(95)/1000000,
+		latencyHist.ValueAtQuantile(99)/1000000,
+		latencyHist.ValueAtQuantile(999)/1000000,
+		max/1000000)
+}
+
 func logFinalReport(good, bad, bytes int64, latencies *hdrhistogram.Histogram) {
 	latency := Quantiles{
 		Quantile50:  latencies.ValueAtQuantile(50) / 1000000,
@@ -318,18 +338,7 @@ func main() {
 				if min == math.MaxInt64 {
 					min = 0
 				}
-				// Periodically print stats about the request load.
-				fmt.Printf("%s % 7s %6d/%1d %3d [%3d %3d %3d %4d ] %4d\n",
-					t.Format(time.RFC3339),
-					formatBytes(bytes),
-					good,
-					bad,
-					min/1000000,
-					latencyHist.ValueAtQuantile(50)/1000000,
-					latencyHist.ValueAtQuantile(95)/1000000,
-					latencyHist.ValueAtQuantile(99)/1000000,
-					latencyHist.ValueAtQuantile(999)/1000000,
-					max/1000000)
+				logIntervalReport(t, interval, good, bad, bytes, min, max, latencyHist)
 				bytes, count, good, bad, max, min = 0, 0, 0, 0, 0, math.MaxInt64
 				latencyHist.Reset()
 				timeout = time.After(*interval)
