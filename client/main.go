@@ -25,11 +25,14 @@ import (
 	"google.golang.org/grpc"
 )
 
-// MeasuredResponse tracks the latency of a response and any accompaning error.
+// MeasuredResponse tracks the latency of a response and any
+// accompaning error. timeBetweenFrames is how long we spend waiting
+// for the next frame to arrive.
 type MeasuredResponse struct {
-	latency time.Duration
-	bytes   int64
-	err     error
+	timeBetweenFrames time.Duration
+	latency           time.Duration
+	bytes             int64
+	err               error
 }
 
 func exUsage(msg string) {
@@ -45,6 +48,7 @@ type Report struct {
 	Bad     int64      `json:"bad"`
 	Bytes   int64      `json:"bytes"`
 	Latency *Quantiles `json:"latency"`
+	Jitter  *Quantiles `json:"jitter"`
 }
 
 // Latency Percentiles
@@ -54,6 +58,9 @@ type Quantiles struct {
 	Quantile99  int64 `json:"99"`
 	Quantile999 int64 `json:"999"`
 }
+
+// 1 day in milliseconds
+const DAY_IN_MS int64 = 24 * 60 * 60 * 1000000
 
 var sizeSuffixes = []string{"B", "KB", "MB", "GB"}
 
@@ -72,34 +79,43 @@ func logIntervalReport(
 	now time.Time,
 	interval *time.Duration,
 	good, bad, bytes, min, max int64,
-	latencyHist *hdrhistogram.Histogram) {
-	fmt.Printf("%s % 7s %6d/%1d %s %3d [%3d %3d %3d %4d ] %4d\n",
+	latencyHist *hdrhistogram.Histogram,
+	jitterHist *hdrhistogram.Histogram) {
+	fmt.Printf("%s % 7s %6d/%1d %s L: %3d [%3d %3d ] %4d J: %3d %3d\n",
 		now.Format(time.RFC3339),
 		formatBytes(bytes),
 		good,
 		bad,
 		interval,
 		min/1000000,
-		latencyHist.ValueAtQuantile(50)/1000000,
-		latencyHist.ValueAtQuantile(95)/1000000,
-		latencyHist.ValueAtQuantile(99)/1000000,
-		latencyHist.ValueAtQuantile(999)/1000000,
-		max/1000000)
+		latencyHist.ValueAtQuantile(95),
+		latencyHist.ValueAtQuantile(99),
+		max,
+		jitterHist.ValueAtQuantile(95),
+		jitterHist.ValueAtQuantile(99),
+	)
 }
 
-func logFinalReport(good, bad, bytes int64, latencies *hdrhistogram.Histogram) {
+func logFinalReport(good, bad, bytes int64, latencies *hdrhistogram.Histogram, jitters *hdrhistogram.Histogram) {
 	latency := Quantiles{
-		Quantile50:  latencies.ValueAtQuantile(50) / 1000000,
-		Quantile95:  latencies.ValueAtQuantile(95) / 1000000,
-		Quantile99:  latencies.ValueAtQuantile(99) / 1000000,
-		Quantile999: latencies.ValueAtQuantile(999) / 1000000,
+		Quantile50:  latencies.ValueAtQuantile(50),
+		Quantile95:  latencies.ValueAtQuantile(95),
+		Quantile99:  latencies.ValueAtQuantile(99),
+		Quantile999: latencies.ValueAtQuantile(999),
 	}
 
+	jitter := Quantiles{
+		Quantile50:  jitters.ValueAtQuantile(50),
+		Quantile95:  jitters.ValueAtQuantile(95),
+		Quantile99:  jitters.ValueAtQuantile(99),
+		Quantile999: jitters.ValueAtQuantile(999),
+	}
 	report := Report{
 		Good:    good,
 		Bad:     bad,
 		Bytes:   bytes,
 		Latency: &latency,
+		Jitter:  &jitter,
 	}
 
 	if data, err := json.MarshalIndent(report, "", "  "); err != nil {
@@ -121,7 +137,7 @@ func sendNonStreamingRequests(client pb.ResponderClient,
 				Latency: latencyDistribution.Get(r.Int31() % 1000)})
 
 		bytes := int64(len([]byte(resp.Body)))
-		received <- &MeasuredResponse{time.Since(start), bytes, err}
+		received <- &MeasuredResponse{0, time.Since(start), bytes, err}
 
 		if err != nil {
 			return err
@@ -163,6 +179,9 @@ func sendStreamingRequests(client pb.ResponderClient,
 		log.Fatalf("%v.StreamingGet(_) = _, %v", client, err)
 	}
 
+	latencyMap := latencyDistribution.ToMap()
+	lengthMap := lengthDistribution.ToMap()
+
 	waitc := make(chan struct{})
 	go func() {
 		for {
@@ -175,9 +194,20 @@ func sendStreamingRequests(client pb.ResponderClient,
 				close(waitc)
 				return
 			}
+			if err != nil {
+				fmt.Println("streaming read failed: ", err)
+				return
+			}
+
+			timeBetweenFrames := time.Duration(resp.CurrentFrameSent - resp.LastFrameSent)
 
 			bytes := int64(len([]byte(resp.Body)))
-			received <- &MeasuredResponse{elapsed, bytes, err}
+			received <- &MeasuredResponse{
+				timeBetweenFrames,
+				elapsed,
+				bytes,
+				err,
+			}
 		}
 	}()
 
@@ -190,8 +220,8 @@ func sendStreamingRequests(client pb.ResponderClient,
 
 		err := stream.Send(&pb.StreamingResponseSpec{
 			Count:              int32(numRequests),
-			LatencyPercentiles: latencyDistribution.ToMap(),
-			LengthPercentiles:  lengthDistribution.ToMap(),
+			LatencyPercentiles: latencyMap,
+			LengthPercentiles:  lengthMap,
 		})
 
 		if err != nil {
@@ -260,8 +290,10 @@ func main() {
 
 	var bytes, totalBytes, count, totalCount, good, totalGood, bad, totalBad, max, min int64
 	min = math.MaxInt64
-	latencyHist := hdrhistogram.New(0, int64(time.Second), 5)
-	globalLatencyHist := hdrhistogram.New(0, int64(time.Second), 5)
+	latencyHist := hdrhistogram.New(0, DAY_IN_MS, 3)
+	globalLatencyHist := hdrhistogram.New(0, DAY_IN_MS, 3)
+	jitterHist := hdrhistogram.New(0, DAY_IN_MS, 3)
+	globalJitterHist := hdrhistogram.New(0, DAY_IN_MS, 3)
 	received := make(chan *MeasuredResponse, 10000)
 
 	var timeout = make(<-chan time.Time)
@@ -305,10 +337,12 @@ func main() {
 		for {
 			select {
 			case <-cleanup:
+				// FIX: how can we close the client
+				// connection properly here?
 				if !*disableFinalReport {
-					logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist)
+					logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist, globalJitterHist)
 				}
-				os.Exit(1)
+				os.Exit(0)
 
 			case resp := <-received:
 				count++
@@ -323,7 +357,7 @@ func main() {
 					bytes += resp.bytes
 					totalBytes += resp.bytes
 
-					latency := resp.latency.Nanoseconds()
+					latency := resp.latency.Nanoseconds() / 1000000
 					if latency < min {
 						min = latency
 					}
@@ -332,15 +366,21 @@ func main() {
 					}
 					latencyHist.RecordValue(latency)
 					globalLatencyHist.RecordValue(latency)
+
+					jitter := resp.timeBetweenFrames.Nanoseconds() / 1000000
+					jitterHist.RecordValue(jitter)
+					globalJitterHist.RecordValue(jitter)
 				}
 
 			case t := <-timeout:
 				if min == math.MaxInt64 {
 					min = 0
 				}
-				logIntervalReport(t, interval, good, bad, bytes, min, max, latencyHist)
+				logIntervalReport(t, interval, good, bad, bytes, min, max,
+					latencyHist, jitterHist)
 				bytes, count, good, bad, max, min = 0, 0, 0, 0, 0, math.MaxInt64
 				latencyHist.Reset()
+				jitterHist.Reset()
 				timeout = time.After(*interval)
 			}
 		}
@@ -348,6 +388,6 @@ func main() {
 
 	wg.Wait()
 	if !*disableFinalReport {
-		logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist)
+		logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist, globalJitterHist)
 	}
 }

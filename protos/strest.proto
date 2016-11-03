@@ -18,12 +18,16 @@ message ResponseSpec {
 message StreamingResponseSpec {
   // how many responses to send.
   int32 count = 1;
-  // distributions for latency and length
-  map<int32, int64> latencyPercentiles = 4;
-  map<int32, int64> lengthPercentiles = 5;
+  // distributions for latency and body size
+  map<int32, int64> latencyPercentiles = 2;
+  map<int32, int64> lengthPercentiles = 3;
 }
 
 // The response message containing the greetings
 message ResponseReply {
   string body = 1;
+  // Time last frame sent (0 if not a streaming response)
+  int64 lastFrameSent = 2;
+  // Server time of current frame sent.
+  int64 currentFrameSent = 3;
 }
