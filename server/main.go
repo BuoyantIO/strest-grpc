@@ -25,7 +25,11 @@ func (s *server) Get(ctx context.Context, in *pb.ResponseSpec) (*pb.ResponseRepl
 	if in.Latency > 0 {
 		time.Sleep(time.Duration(in.Latency) * time.Millisecond)
 	}
-	return &pb.ResponseReply{Body: random_string.RandStringBytesMaskImprSrc(src, int(in.Length))}, nil
+	return &pb.ResponseReply{
+		Body:             random_string.RandStringBytesMaskImprSrc(src, int(in.Length)),
+		LastFrameSent:    0,
+		CurrentFrameSent: time.Now().UnixNano(),
+	}, nil
 }
 
 // StreamingGet implements a streaming request/response.
@@ -64,6 +68,8 @@ func (s *server) StreamingGet(stream pb.Responder_StreamingGetServer) error {
 			return err
 		}
 
+		lastFrameSent := time.Now().UnixNano()
+
 		for i := int32(0); i < spec.Count; i++ {
 			timeToSleep := latencyDistribution.Get(r.Int31() % 1000)
 			bodySize := lengthDistribution.Get(r.Int31() % 1000)
@@ -72,9 +78,13 @@ func (s *server) StreamingGet(stream pb.Responder_StreamingGetServer) error {
 				time.Sleep(time.Duration(timeToSleep) * time.Millisecond)
 			}
 
+			now := time.Now().UnixNano()
 			response := &pb.ResponseReply{
-				Body: random_string.RandStringBytesMaskImprSrc(src, int(bodySize)),
+				Body:             random_string.RandStringBytesMaskImprSrc(src, int(bodySize)),
+				LastFrameSent:    lastFrameSent,
+				CurrentFrameSent: now,
 			}
+			lastFrameSent = now
 
 			if err := stream.Send(response); err != nil {
 				return err
