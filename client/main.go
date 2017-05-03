@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/signal"
 	"path"
@@ -17,10 +18,12 @@ import (
 	"syscall"
 	"time"
 
-	pb "../protos"
 	"github.com/buoyantio/strest-grpc/client/distribution"
 	"github.com/buoyantio/strest-grpc/client/percentiles"
+	pb "github.com/buoyantio/strest-grpc/protos"
 	"github.com/codahale/hdrhistogram"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
@@ -62,7 +65,40 @@ type Quantiles struct {
 // 1 day in milliseconds
 const DAY_IN_MS int64 = 24 * 60 * 60 * 1000000
 
-var sizeSuffixes = []string{"B", "KB", "MB", "GB"}
+var (
+	sizeSuffixes = []string{"B", "KB", "MB", "GB"}
+
+	promRequests = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "requests",
+		Help: "Number of requests",
+	})
+
+	promResponses = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "responses",
+		Help: "Number of successful responses",
+	})
+
+	promLatencyHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: "latency_ms",
+		Help: "gRPC latency distributions in milliseconds.",
+		// 50 exponential buckets ranging from 0.5 ms to 3 minutes
+		// TODO: make this tunable
+		Buckets: prometheus.ExponentialBuckets(0.5, 1.3, 50),
+	})
+	promJitterHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: "jitter_ms",
+		Help: "gRPC jitter distributions in milliseconds.",
+		// 50 exponential buckets ranging from 0.5 ms to 3 minutes
+		// TODO: make this tunable
+		Buckets: prometheus.ExponentialBuckets(0.5, 1.3, 50),
+	})
+)
+
+func registerMetrics() {
+	prometheus.MustRegister(promRequests)
+	prometheus.MustRegister(promResponses)
+	prometheus.MustRegister(promLatencyHistogram)
+}
 
 func formatBytes(bytes int64) string {
 	sz := float64(bytes)
@@ -137,7 +173,9 @@ func sendNonStreamingRequests(client pb.ResponderClient,
 				Latency: latencyDistribution.Get(r.Int31() % 1000)})
 
 		bytes := int64(len([]byte(resp.Body)))
-		received <- &MeasuredResponse{0, time.Since(start), bytes, err}
+		latency := time.Since(start)
+		promLatencyHistogram.Observe(float64(latency))
+		received <- &MeasuredResponse{0, latency, bytes, err}
 
 		if err != nil {
 			return err
@@ -200,7 +238,7 @@ func sendStreamingRequests(client pb.ResponderClient,
 			}
 
 			timeBetweenFrames := time.Duration(resp.CurrentFrameSent - resp.LastFrameSent)
-
+			promLatencyHistogram.Observe(float64(timeBetweenFrames))
 			bytes := int64(len([]byte(resp.Body)))
 			received <- &MeasuredResponse{
 				timeBetweenFrames,
@@ -248,6 +286,7 @@ func main() {
 		onlyFinalReport       = flag.Bool("onlyFinalReport", false, "only print the final report, nothing intermediate")
 		streaming             = flag.Bool("streaming", false, "use the streaming features of strest server")
 		streamingRatio        = flag.String("streamingRatio", "1:1", "the ratio of streaming requests/responses")
+		metricAddr            = flag.String("metric-addr", "", "address to serve metrics on")
 	)
 
 	flag.Usage = func() {
@@ -299,6 +338,14 @@ func main() {
 	var timeout = make(<-chan time.Time)
 	if !*onlyFinalReport {
 		timeout = time.After(*interval)
+	}
+
+	if *metricAddr != "" {
+		registerMetrics()
+		go func() {
+			http.Handle("/metrics", promhttp.Handler())
+			http.ListenAndServe(*metricAddr, nil)
+		}()
 	}
 
 	var wg sync.WaitGroup
@@ -368,6 +415,8 @@ func main() {
 					globalLatencyHist.RecordValue(latency)
 
 					jitter := resp.timeBetweenFrames.Nanoseconds() / 1000000
+					promJitterHistogram.Observe(float64(jitter))
+
 					jitterHist.RecordValue(jitter)
 					globalJitterHist.RecordValue(jitter)
 				}
