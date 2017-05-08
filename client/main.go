@@ -162,23 +162,31 @@ func logFinalReport(good, bad, bytes int64, latencies *hdrhistogram.Histogram, j
 }
 
 func sendNonStreamingRequests(client pb.ResponderClient,
+	shutdownChannel chan struct{},
 	lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution, r *rand.Rand,
 	received chan *MeasuredResponse) error {
 	for {
-		start := time.Now()
-		resp, err := client.Get(context.Background(),
-			&pb.ResponseSpec{
-				Length:  int32(lengthDistribution.Get(r.Int31() % 1000)),
-				Latency: latencyDistribution.Get(r.Int31() % 1000)})
+		select {
+		case <-shutdownChannel:
+			fmt.Println("return nil")
+			return nil
+		default:
 
-		bytes := int64(len([]byte(resp.Body)))
-		latency := time.Since(start)
-		promLatencyHistogram.Observe(float64(latency))
-		received <- &MeasuredResponse{0, latency, bytes, err}
+			start := time.Now()
+			resp, err := client.Get(context.Background(),
+				&pb.ResponseSpec{
+					Length:  int32(lengthDistribution.Get(r.Int31() % 1000)),
+					Latency: latencyDistribution.Get(r.Int31() % 1000)})
 
-		if err != nil {
-			return err
+			bytes := int64(len([]byte(resp.Body)))
+			latency := time.Since(start)
+			promLatencyHistogram.Observe(float64(latency))
+			received <- &MeasuredResponse{0, latency, bytes, err}
+
+			if err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -207,13 +215,14 @@ func parseStreamingRatio(streamingRatio string) (int64, int64) {
 }
 
 func sendStreamingRequests(client pb.ResponderClient,
-	lengthDistribution distribution.Distribution,
+	shutdownChannel chan struct{}, lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution, streamingRatio string,
 	r *rand.Rand, received chan *MeasuredResponse) error {
 	stream, err := client.StreamingGet(context.Background())
 	if err != nil {
 		log.Fatalf("%v.StreamingGet(_) = _, %v", client, err)
 	}
+	defer stream.CloseSend()
 
 	latencyMap := latencyDistribution.ToMap()
 	lengthMap := lengthDistribution.ToMap()
@@ -251,26 +260,34 @@ func sendStreamingRequests(client pb.ResponderClient,
 	var numRequests = int64(0)
 	currentRequest := int64(0)
 	for {
-		if (currentRequest % requestRatioM) == 0 {
-			numRequests = requestRatioN
+		select {
+		case <-shutdownChannel:
+			close(waitc)
+			fmt.Println("return nil")
+			return nil
+		default:
+			if (currentRequest % requestRatioM) == 0 {
+				numRequests = requestRatioN
+			}
+
+			err := stream.Send(&pb.StreamingResponseSpec{
+				Count:              int32(numRequests),
+				LatencyPercentiles: latencyMap,
+				LengthPercentiles:  lengthMap,
+			})
+
+			if err != nil {
+				log.Fatalf("Failed to Send ResponseSpec: %v", err)
+			}
+
+			numRequests = 0
+			currentRequest++
 		}
-
-		err := stream.Send(&pb.StreamingResponseSpec{
-			Count:              int32(numRequests),
-			LatencyPercentiles: latencyMap,
-			LengthPercentiles:  lengthMap,
-		})
-
-		if err != nil {
-			log.Fatalf("Failed to Send ResponseSpec: %v", err)
-		}
-
-		numRequests = 0
-		currentRequest++
 	}
 }
 
 func main() {
+	defer os.Exit(0)
 	var (
 		address               = flag.String("address", "localhost:11111", "hostname:port of strest-grpc service or intermediary")
 		concurrency           = flag.Int("concurrency", 1, "client concurrency level")
@@ -320,7 +337,7 @@ func main() {
 		log.Fatalf("unable to create length distribution: %v", err)
 	}
 
-	cleanup := make(chan bool, 2)
+	cleanup := make(chan struct{}, 2)
 	interrupt := make(chan os.Signal, 2)
 	signal.Notify(interrupt, syscall.SIGINT)
 
@@ -347,8 +364,12 @@ func main() {
 
 	var wg sync.WaitGroup
 	wg.Add(*concurrency)
+	shutdownChannels := make([]chan struct{}, *concurrency)
 
 	for i := int(0); i < *concurrency; i++ {
+		shutdownChannel := make(chan struct{}, 2)
+		shutdownChannels = append(shutdownChannels, shutdownChannel)
+
 		go func() {
 			r := rand.New(rand.NewSource(time.Now().UnixNano()))
 			// Set up a connection to the server.
@@ -360,35 +381,40 @@ func main() {
 			client := pb.NewResponderClient(conn)
 
 			if !*streaming {
-				err := sendNonStreamingRequests(client,
+				err := sendNonStreamingRequests(client, shutdownChannel,
 					lengthDistribution, latencyDistribution, r, received)
 				if err != nil {
 					log.Fatalf("could not send a request: %v", err)
 				}
 			} else {
-				err := sendStreamingRequests(client,
+				err := sendStreamingRequests(client, shutdownChannel,
 					lengthDistribution, latencyDistribution, *streamingRatio, r, received)
 				if err != nil {
 					log.Fatalf("could not send a request: %v", err)
 				}
 			}
-
 			wg.Done()
 		}()
 	}
 
 	go func() {
+		wg.Add(1)
 		for {
 			select {
 			case <-interrupt:
-				cleanup <- true
+				cleanup <- struct{}{}
 			case <-cleanup:
-				// FIX: how can we close the client
-				// connection properly here?
+				for _, c := range shutdownChannels {
+					if c != nil {
+						c <- struct{}{}
+					}
+				}
+
 				if !*disableFinalReport {
 					logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist, globalJitterHist)
 				}
-				os.Exit(0)
+				wg.Done()
+				return
 
 			case resp := <-received:
 				count++
@@ -431,13 +457,14 @@ func main() {
 				jitterHist.Reset()
 				timeout = time.After(*interval)
 				if totalCount > 0 && totalCount > *totalRequests {
-					cleanup <- true
+					cleanup <- struct{}{}
 				}
 			}
 		}
 	}()
 
 	wg.Wait()
+
 	if !*disableFinalReport {
 		logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist, globalJitterHist)
 	}
