@@ -162,14 +162,13 @@ func logFinalReport(good, bad, bytes int64, latencies *hdrhistogram.Histogram, j
 }
 
 func sendNonStreamingRequests(client pb.ResponderClient,
-	shutdownChannel chan struct{},
+	shutdownChannel <-chan struct{},
 	lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution, r *rand.Rand,
 	received chan *MeasuredResponse) error {
 	for {
 		select {
 		case <-shutdownChannel:
-			fmt.Println("return nil")
 			return nil
 		default:
 
@@ -215,7 +214,7 @@ func parseStreamingRatio(streamingRatio string) (int64, int64) {
 }
 
 func sendStreamingRequests(client pb.ResponderClient,
-	shutdownChannel chan struct{}, lengthDistribution distribution.Distribution,
+	shutdownChannel <-chan struct{}, lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution, streamingRatio string,
 	r *rand.Rand, received chan *MeasuredResponse) error {
 	stream, err := client.StreamingGet(context.Background())
@@ -257,13 +256,11 @@ func sendStreamingRequests(client pb.ResponderClient,
 	}()
 
 	requestRatioM, requestRatioN := parseStreamingRatio(streamingRatio)
-	var numRequests = int64(0)
+	numRequests := int64(0)
 	currentRequest := int64(0)
 	for {
 		select {
 		case <-shutdownChannel:
-			close(waitc)
-			fmt.Println("return nil")
 			return nil
 		default:
 			if (currentRequest % requestRatioM) == 0 {
@@ -287,7 +284,6 @@ func sendStreamingRequests(client pb.ResponderClient,
 }
 
 func main() {
-	defer os.Exit(0)
 	var (
 		address               = flag.String("address", "localhost:11111", "hostname:port of strest-grpc service or intermediary")
 		concurrency           = flag.Int("concurrency", 1, "client concurrency level")
@@ -468,4 +464,5 @@ func main() {
 	if !*disableFinalReport {
 		logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist, globalJitterHist)
 	}
+	os.Exit(0)
 }
