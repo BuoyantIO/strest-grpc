@@ -452,7 +452,7 @@ func main() {
 				latencyHist.Reset()
 				jitterHist.Reset()
 				timeout = time.After(*interval)
-				if totalCount > 0 && totalCount > *totalRequests {
+				if *totalRequests > 0 && totalCount > *totalRequests {
 					cleanup <- struct{}{}
 				}
 			}
@@ -460,9 +460,5 @@ func main() {
 	}()
 
 	wg.Wait()
-
-	if !*disableFinalReport {
-		logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist, globalJitterHist)
-	}
 	os.Exit(0)
 }
