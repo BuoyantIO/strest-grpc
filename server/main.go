@@ -22,8 +22,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-const port = ":11111"
-
 type server struct{}
 
 var (
@@ -138,7 +136,9 @@ func (s *server) StreamingGet(stream pb.Responder_StreamingGetServer) error {
 }
 
 func main() {
-	help := flag.Bool("help", false, "show help message")
+	rand.Seed(time.Now().UnixNano())
+
+	address := flag.String("address", ":11111", "hostname:port to serve on")
 	metricAddr := flag.String("metric-addr", "", "address to serve metrics on")
 
 	flag.Usage = func() {
@@ -148,11 +148,6 @@ func main() {
 
 	flag.Parse()
 
-	if *help {
-		flag.Usage()
-		os.Exit(64)
-	}
-
 	if *metricAddr != "" {
 		registerMetrics()
 		go func() {
@@ -160,8 +155,10 @@ func main() {
 			http.ListenAndServe(*metricAddr, nil)
 		}()
 	}
-	rand.Seed(time.Now().UnixNano())
-	lis, err := net.Listen("tcp", port)
+
+	fmt.Println("starting gRPC server on", *address)
+
+	lis, err := net.Listen("tcp", *address)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
