@@ -1,9 +1,10 @@
 package distribution_test
 
 import (
+	"testing"
+
 	"github.com/buoyantio/strest-grpc/client/distribution"
 	. "gopkg.in/check.v1"
-	"testing"
 )
 
 // Hook up gocheck into the "go test" runner.
@@ -41,8 +42,8 @@ func (*DistributionTestSuite) TestCheckValueFits(c *C) {
 	c.Assert(err, IsNil)
 
 	high, low := dist.FindHighLowKeys(200)
-	c.Assert(low, Equals, 0)
-	c.Assert(high, Equals, 1000)
+	c.Assert(low, Equals, int32(0))
+	c.Assert(high, Equals, int32(1000))
 
 	c.Assert(dist.CheckKeyValueFits(200, 200), IsNil)
 	c.Assert(dist.CheckValidity(), IsNil)
@@ -50,8 +51,8 @@ func (*DistributionTestSuite) TestCheckValueFits(c *C) {
 	dist[200] = 200
 
 	high, low = dist.FindHighLowKeys(300)
-	c.Assert(low, Equals, 200)
-	c.Assert(high, Equals, 1000)
+	c.Assert(low, Equals, int32(200))
+	c.Assert(high, Equals, int32(1000))
 
 	c.Assert(dist.CheckKeyValueFits(300, 300), IsNil)
 	c.Assert(dist.CheckValidity(), IsNil)
@@ -69,8 +70,8 @@ func (*DistributionTestSuite) TestCheckValueFits2(c *C) {
 	dist[300] = 300
 
 	high, low := dist.FindHighLowKeys(250)
-	c.Assert(high, Equals, 300)
-	c.Assert(low, Equals, 200)
+	c.Assert(high, Equals, int32(300))
+	c.Assert(low, Equals, int32(200))
 	c.Assert(dist.CheckKeyValueFits(250, 250), IsNil)
 	c.Assert(dist.CheckValidity(), IsNil)
 }
@@ -92,10 +93,10 @@ func (*DistributionTestSuite) TestFindHighLowKeysLargeValues(c *C) {
 		c.Errorf("%d > %d", low, high)
 	}
 
-	c.Assert(low, Equals, 0)
+	c.Assert(low, Equals, int32(0))
 	c.Assert(dist[low], Equals, int64(0))
 
-	c.Assert(high, Equals, 1000)
+	c.Assert(high, Equals, int32(1000))
 	c.Assert(dist[high], Equals, int64(1100))
 	c.Assert(dist.CheckValidity(), IsNil)
 }
@@ -110,16 +111,16 @@ func (*DistributionTestSuite) TestFindHighLowKeysSmallValues(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(dist, Not(IsNil))
 	high, low := dist.FindHighLowKeys(750)
-	c.Assert(high, Equals, 900)
-	c.Assert(low, Equals, 500)
+	c.Assert(high, Equals, int32(900))
+	c.Assert(low, Equals, int32(500))
 
 	high, low = dist.FindHighLowKeys(499)
-	c.Assert(high, Equals, 500)
-	c.Assert(low, Equals, 0)
+	c.Assert(high, Equals, int32(500))
+	c.Assert(low, Equals, int32(0))
 
 	high, low = dist.FindHighLowKeys(999)
-	c.Assert(high, Equals, 1000)
-	c.Assert(low, Equals, 900)
+	c.Assert(high, Equals, int32(1000))
+	c.Assert(low, Equals, int32(900))
 }
 
 func (*DistributionTestSuite) TestEmpty(c *C) {
@@ -255,9 +256,9 @@ func (*DistributionTestSuite) TestSmallValues(c *C) {
 
 	c.Assert(dist.Get(250), Equals, int64(25))
 	high, low := dist.FindHighLowKeys(400)
-	c.Assert(high, Equals, 500)
+	c.Assert(high, Equals, int32(500))
 	c.Assert(dist[500], Equals, int64(50))
-	c.Assert(low, Equals, 0)
+	c.Assert(low, Equals, int32(0))
 	c.Assert(dist[0], Equals, int64(0))
 	c.Assert(dist.Get(400), Equals, int64(40))
 	c.Assert(dist.Get(500), Equals, int64(50))
