@@ -117,6 +117,9 @@ func logIntervalReport(
 	good, bad, bytes, min, max int64,
 	latencyHist *hdrhistogram.Histogram,
 	jitterHist *hdrhistogram.Histogram) {
+	if min == math.MaxInt64 {
+		min = 0
+	}
 	fmt.Printf("%s % 7s %6d/%1d %s L: %3d [%3d %3d ] %4d J: %3d %3d\n",
 		now.Format(time.RFC3339),
 		formatBytes(bytes),
@@ -291,8 +294,8 @@ func main() {
 		interval              = flag.Duration("interval", 10*time.Second, "reporting interval")
 		latencyPercentileFlag = flag.String("latencyPercentiles", "50=10,100=100", "response latency percentile distribution.")
 		lengthPercentileFlag  = flag.String("lengthPercentiles", "50=100,100=1000", "response body length percentile distribution.")
-		disableFinalReport    = flag.Bool("disableFinalReport", false, "do not print a final JSON output report")
-		onlyFinalReport       = flag.Bool("onlyFinalReport", false, "only print the final report, nothing intermediate")
+		noFinalReport         = flag.Bool("noFinalReport", false, "do not print a final JSON output report")
+		noIntervalReport      = flag.Bool("noIntervalReport", false, "only print the final report, nothing intermediate")
 		streaming             = flag.Bool("streaming", false, "use the streaming features of strest server")
 		streamingRatio        = flag.String("streamingRatio", "1:1", "the ratio of streaming requests/responses")
 		metricAddr            = flag.String("metric-addr", "", "address to serve metrics on")
@@ -305,8 +308,8 @@ func main() {
 
 	flag.Parse()
 
-	if *onlyFinalReport && *disableFinalReport {
-		log.Fatalf("cannot use both -onlyFinalReport and -disableFinalReport.")
+	if *noIntervalReport && *noFinalReport {
+		log.Fatalf("cannot use both -noIntervalReport and -noFinalReport.")
 	}
 
 	if *concurrency < 1 {
@@ -345,10 +348,8 @@ func main() {
 	globalJitterHist := hdrhistogram.New(0, DAY_IN_MS, 3)
 	received := make(chan *MeasuredResponse, 10000)
 
-	var timeout = make(<-chan time.Time)
-	if !*onlyFinalReport {
-		timeout = time.After(*interval)
-	}
+	intervalReport := time.Tick(*interval)
+	previousInterval := time.Now()
 
 	if *metricAddr != "" {
 		registerMetrics()
@@ -406,7 +407,13 @@ func main() {
 					}
 				}
 
-				if !*disableFinalReport {
+				if !*noIntervalReport && count > 0 {
+					t := previousInterval.Add(*interval)
+					logIntervalReport(t, interval, good, bad, bytes, min, max,
+						latencyHist, jitterHist)
+				}
+
+				if !*noFinalReport {
 					logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist, globalJitterHist)
 				}
 				wg.Done()
@@ -441,20 +448,20 @@ func main() {
 					jitterHist.RecordValue(jitter)
 					globalJitterHist.RecordValue(jitter)
 				}
+				if *totalRequests > 0 && totalCount >= *totalRequests {
+					cleanup <- struct{}{}
+				}
 
-			case t := <-timeout:
-				if min == math.MaxInt64 {
-					min = 0
+			case t := <-intervalReport:
+				if *noIntervalReport {
+					continue
 				}
 				logIntervalReport(t, interval, good, bad, bytes, min, max,
 					latencyHist, jitterHist)
 				bytes, count, good, bad, max, min = 0, 0, 0, 0, 0, math.MaxInt64
 				latencyHist.Reset()
 				jitterHist.Reset()
-				timeout = time.After(*interval)
-				if *totalRequests > 0 && totalCount > *totalRequests {
-					cleanup <- struct{}{}
-				}
+				previousInterval = t
 			}
 		}
 	}()
