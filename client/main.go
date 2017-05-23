@@ -180,15 +180,14 @@ func sendNonStreamingRequests(client pb.ResponderClient,
 				&pb.ResponseSpec{
 					Length:  int32(lengthDistribution.Get(r.Int31() % 1000)),
 					Latency: latencyDistribution.Get(r.Int31() % 1000)})
+			if err != nil {
+				return err
+			}
 
 			bytes := int64(len([]byte(resp.Body)))
 			latency := time.Since(start)
 			promLatencyHistogram.Observe(float64(latency))
 			received <- &MeasuredResponse{0, latency, bytes, err}
-
-			if err != nil {
-				return err
-			}
 		}
 	}
 }
