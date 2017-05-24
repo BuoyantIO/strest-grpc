@@ -168,26 +168,26 @@ func sendNonStreamingRequests(client pb.ResponderClient,
 	shutdownChannel <-chan struct{},
 	lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution, r *rand.Rand,
-	received chan *MeasuredResponse) error {
+	received chan *MeasuredResponse) {
 	for {
 		select {
 		case <-shutdownChannel:
-			return nil
+			return
 		default:
-
 			start := time.Now()
 			resp, err := client.Get(context.Background(),
 				&pb.ResponseSpec{
 					Length:  int32(lengthDistribution.Get(r.Int31() % 1000)),
 					Latency: latencyDistribution.Get(r.Int31() % 1000)})
 			if err != nil {
-				return err
+				received <- &MeasuredResponse{err: err}
+				continue
 			}
 
 			bytes := int64(len([]byte(resp.Body)))
 			latency := time.Since(start)
 			promLatencyHistogram.Observe(float64(latency))
-			received <- &MeasuredResponse{0, latency, bytes, err}
+			received <- &MeasuredResponse{latency: latency, bytes: bytes}
 		}
 	}
 }
@@ -377,11 +377,8 @@ func main() {
 			client := pb.NewResponderClient(conn)
 
 			if !*streaming {
-				err := sendNonStreamingRequests(client, shutdownChannel,
+				sendNonStreamingRequests(client, shutdownChannel,
 					lengthDistribution, latencyDistribution, r, received)
-				if err != nil {
-					log.Fatalf("could not send a request: %v", err)
-				}
 			} else {
 				err := sendStreamingRequests(client, shutdownChannel,
 					lengthDistribution, latencyDistribution, *streamingRatio, r, received)
