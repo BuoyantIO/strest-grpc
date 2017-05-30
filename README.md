@@ -1,3 +1,5 @@
+[![CircleCI](https://circleci.com/gh/BuoyantIO/strest-grpc.svg?style=shield)](https://circleci.com/gh/BuoyantIO/strest-grpc)
+
 # strest-grpc
 
 Strest client and server implementations for gRPC.
