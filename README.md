@@ -40,6 +40,22 @@ $ go run client/main.go --address localhost:11111
 
 Use the `-help` flag with either the client or server to see a list of flags.
 
+| Flag                  | Default   | Description |
+|-----------------------|-----------|-------------|
+| `-address`            | `localhost:11111` | hostname:port of strest-grpc service or intermediary. |
+| `-qps`                | `1`       | QPS to send to backends per request thread. |
+| `-concurrency`        | `1`       | Number of goroutines to run, each at the specified QPS level. Measure total QPS as `qps * concurrency`. |
+| `-interval`           | `10s`     | How often to report stats to stdout. |
+| `-totalRequests`      | `<none>`  | Exit after sending this many requests. |
+| `-metric-addr`        | `<none>`  | Address to use when serving the Prometheus `/metrics` endpoint. No metrics are served if unset. Format is `host:port` or `:port`. |
+| `-noFinalReport`      | `<unset>` | If set, don't print the json latency report at the end. |
+| `-noIntervalReport`   | `<unset>` | If set, only print the final report, nothing intermediate. |
+| `-latencyPercentiles` | `50=10,100=100` | response latency percentile distribution in milliseconds. |
+| `-lengthPercentiles`  | `50=100,100=1000` | response body length percentile. |
+| `-streaming`          | `<unset>` | response is a gRPC stream from the strest server. |
+| `-streamingRatio`     | `1:1`     | the ratio of streaming requests/responses if streaming is enabled. |
+| `-help`               | `<unset>` | If set, print all available flags and exit. |
+
 ## Building
 
 To build the client and server binaries, run:
