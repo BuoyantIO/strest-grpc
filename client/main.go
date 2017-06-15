@@ -164,8 +164,39 @@ func logFinalReport(good, bad, bytes int64, latencies *hdrhistogram.Histogram, j
 	}
 }
 
+func safeNonStreamingRequest(client pb.ResponderClient,
+	clientTimeout time.Duration,
+	lengthDistribution distribution.Distribution,
+	latencyDistribution distribution.Distribution, r *rand.Rand,
+	received chan *MeasuredResponse) {
+		start := time.Now()
+
+		var ctx context.Context
+		if clientTimeout != time.Duration(0) {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(context.Background(), clientTimeout)
+			defer cancel()
+		} else {
+			ctx = context.Background()
+		}
+		resp, err := client.Get(ctx,
+			&pb.ResponseSpec{
+				Length:  int32(lengthDistribution.Get(r.Int31() % 1000)),
+				Latency: latencyDistribution.Get(r.Int31() % 1000)})
+		if err != nil {
+			received <- &MeasuredResponse{err: err}
+			return
+		}
+
+		bytes := int64(len([]byte(resp.Body)))
+		latency := time.Since(start)
+		promLatencyHistogram.Observe(float64(latency))
+		received <- &MeasuredResponse{latency: latency, bytes: bytes}
+}
+
 func sendNonStreamingRequests(client pb.ResponderClient,
 	shutdownChannel <-chan struct{},
+	clientTimeout time.Duration,
 	lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution, r *rand.Rand,
 	received chan *MeasuredResponse) {
@@ -174,20 +205,7 @@ func sendNonStreamingRequests(client pb.ResponderClient,
 		case <-shutdownChannel:
 			return
 		default:
-			start := time.Now()
-			resp, err := client.Get(context.Background(),
-				&pb.ResponseSpec{
-					Length:  int32(lengthDistribution.Get(r.Int31() % 1000)),
-					Latency: latencyDistribution.Get(r.Int31() % 1000)})
-			if err != nil {
-				received <- &MeasuredResponse{err: err}
-				continue
-			}
-
-			bytes := int64(len([]byte(resp.Body)))
-			latency := time.Since(start)
-			promLatencyHistogram.Observe(float64(latency))
-			received <- &MeasuredResponse{latency: latency, bytes: bytes}
+			safeNonStreamingRequest(client, clientTimeout, lengthDistribution, latencyDistribution, r, received)
 		}
 	}
 }
@@ -219,6 +237,7 @@ func sendStreamingRequests(client pb.ResponderClient,
 	shutdownChannel <-chan struct{}, lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution, streamingRatio string,
 	r *rand.Rand, received chan *MeasuredResponse) error {
+
 	stream, err := client.StreamingGet(context.Background())
 	if err != nil {
 		log.Fatalf("%v.StreamingGet(_) = _, %v", client, err)
@@ -288,6 +307,7 @@ func sendStreamingRequests(client pb.ResponderClient,
 func main() {
 	var (
 		address               = flag.String("address", "localhost:11111", "hostname:port of strest-grpc service or intermediary")
+		clientTimeout         = flag.Duration("clientTimeout", 0, "timeout for unary client requests. Default: no timeout")
 		concurrency           = flag.Int("concurrency", 1, "client concurrency level")
 		totalRequests         = flag.Int64("totalRequests", 0, "total number of requests to send. default: infinite")
 		interval              = flag.Duration("interval", 10*time.Second, "reporting interval")
@@ -377,7 +397,7 @@ func main() {
 			client := pb.NewResponderClient(conn)
 
 			if !*streaming {
-				sendNonStreamingRequests(client, shutdownChannel,
+				sendNonStreamingRequests(client, shutdownChannel, *clientTimeout,
 					lengthDistribution, latencyDistribution, r, received)
 			} else {
 				err := sendStreamingRequests(client, shutdownChannel,
