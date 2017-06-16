@@ -73,9 +73,9 @@ var (
 		Help: "Number of requests",
 	})
 
-	promResponses = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "responses",
-		Help: "Number of successful responses",
+	promSuccesses = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "successes",
+		Help: "Number of successful requests",
 	})
 
 	promLatencyHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -96,7 +96,7 @@ var (
 
 func registerMetrics() {
 	prometheus.MustRegister(promRequests)
-	prometheus.MustRegister(promResponses)
+	prometheus.MustRegister(promSuccesses)
 	prometheus.MustRegister(promLatencyHistogram)
 }
 
@@ -169,29 +169,28 @@ func safeNonStreamingRequest(client pb.ResponderClient,
 	lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution, r *rand.Rand,
 	received chan *MeasuredResponse) {
-		start := time.Now()
+	start := time.Now()
 
-		var ctx context.Context
-		if clientTimeout != time.Duration(0) {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(context.Background(), clientTimeout)
-			defer cancel()
-		} else {
-			ctx = context.Background()
-		}
-		resp, err := client.Get(ctx,
-			&pb.ResponseSpec{
-				Length:  int32(lengthDistribution.Get(r.Int31() % 1000)),
-				Latency: latencyDistribution.Get(r.Int31() % 1000)})
-		if err != nil {
-			received <- &MeasuredResponse{err: err}
-			return
-		}
+	var ctx context.Context
+	if clientTimeout != time.Duration(0) {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), clientTimeout)
+		defer cancel()
+	} else {
+		ctx = context.Background()
+	}
+	resp, err := client.Get(ctx,
+		&pb.ResponseSpec{
+			Length:  int32(lengthDistribution.Get(r.Int31() % 1000)),
+			Latency: latencyDistribution.Get(r.Int31() % 1000)})
+	if err != nil {
+		received <- &MeasuredResponse{err: err}
+		return
+	}
 
-		bytes := int64(len([]byte(resp.Body)))
-		latency := time.Since(start)
-		promLatencyHistogram.Observe(float64(latency))
-		received <- &MeasuredResponse{latency: latency, bytes: bytes}
+	bytes := int64(len([]byte(resp.Body)))
+	latency := time.Since(start)
+	received <- &MeasuredResponse{latency: latency, bytes: bytes}
 }
 
 func sendNonStreamingRequests(client pb.ResponderClient,
@@ -265,7 +264,6 @@ func sendStreamingRequests(client pb.ResponderClient,
 			}
 
 			timeBetweenFrames := time.Duration(resp.CurrentFrameSent - resp.LastFrameSent)
-			promLatencyHistogram.Observe(float64(timeBetweenFrames))
 			bytes := int64(len([]byte(resp.Body)))
 			received <- &MeasuredResponse{
 				timeBetweenFrames,
@@ -438,12 +436,14 @@ func main() {
 			case resp := <-received:
 				count++
 				totalCount++
+				promRequests.Inc()
 				if resp.err != nil {
 					bad++
 					totalBad++
 				} else {
 					good++
 					totalGood++
+					promSuccesses.Inc()
 
 					bytes += resp.bytes
 					totalBytes += resp.bytes
@@ -457,6 +457,7 @@ func main() {
 					}
 					latencyHist.RecordValue(latency)
 					globalLatencyHist.RecordValue(latency)
+					promLatencyHistogram.Observe(float64(latency))
 
 					jitter := resp.timeBetweenFrames.Nanoseconds() / 1000000
 					promJitterHistogram.Observe(float64(jitter))
