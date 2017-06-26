@@ -1,3 +1,7 @@
+## Unreleased
+
+* Adds `strest-max-rps`, a tool for determining the max RPS of a backend
+
 ## 0.0.2
 
 * Add a configurable `-clientTimeout` flag

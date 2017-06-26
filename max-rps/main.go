@@ -50,7 +50,7 @@ func main() {
 	for _, l := range levels {
 		level, err := strconv.Atoi(l)
 		if err != nil {
-			log.Fatalf("unknown concurrency level: %s", l, err)
+			log.Fatalf("unknown concurrency level: %s, %s", l, err)
 		}
 
 		throughput := runLoadTests(address, level, timePerLevel)

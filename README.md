@@ -66,7 +66,7 @@ To build the client and server binaries, run:
 ./bin/release.sh
 ```
 
-That will create `strest-client-linux` and `strest-server-linux` binaries in the
+That will create `strest-client-linux`, `strest-server-linux`, and `strest-max-rps` binaries in the
 root of the project.
 
 To build a docker image, run:
@@ -76,6 +76,14 @@ $ docker build -t buoyantio/strest-grpc:latest .
 ```
 
 Replace `latest` with whatever tag you are trying to build.
+
+### `strest-max-rps`
+
+`strest-max-rps` will calculate the maximum RPS that a strest-server or intermediary
+can sustain. The `maxConcurrency` score lets you know what at which point adding more
+clients no longer improves overall throughput. This calculation is based on the
+Universal Scalability Law and can change dramatically based on the envinronment and
+resources available.
 
 ## Releasing
 
