@@ -107,6 +107,90 @@
 			"Rev": "470f45bf29f4147d6fbd7dfd0a02a848e49f5bf4"
 		},
 		{
+			"ImportPath": "golang.org/x/tools/container/intsets",
+			"Rev": "f2cd9d3b518cfa0e287637dd02a895ce2b587f14"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/blas",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/blas/blas64",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/blas/gonum",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/blas/gonum/internal/math32",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/floats",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/internal/asm/f32",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/internal/asm/f64",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/lapack",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/lapack/gonum",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/lapack/lapack64",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/mathext",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/mathext/internal/amos",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/mathext/internal/cephes",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/mathext/internal/gonum",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/matrix",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/matrix/mat64",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/optimize",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/stat",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/stat/distmv",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
+			"ImportPath": "gonum.org/v1/gonum/stat/distuv",
+			"Rev": "4aa1c52425a24f6eb7dd041b91e9086700585443"
+		},
+		{
 			"ImportPath": "google.golang.org/genproto/googleapis/rpc/status",
 			"Rev": "411e09b969b1170a9f0c467558eb4c4c110d9c77"
 		},
