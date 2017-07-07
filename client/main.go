@@ -465,7 +465,14 @@ func main() {
 					jitterHist.RecordValue(jitter)
 					globalJitterHist.RecordValue(jitter)
 				}
-				if *totalRequests > 0 && totalCount > *totalRequests {
+				if *totalRequests > 0 && totalCount + 1 >= *totalRequests {
+					if resp.err != nil {
+						bad++
+						totalBad++
+					} else {
+						good++
+						totalGood++
+					}
 					cleanup <- struct{}{}
 				}
 
