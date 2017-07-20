@@ -326,7 +326,7 @@ func main() {
 
 	flag.Parse()
 	
-	latencyunit := 100
+	latencyunit := 1000000
 	if *latencyUnit == "milli" {
 		latencyunit = 1000000
 	}else if *latencyUnit == "micro" {
