@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 )
 
 type server struct{}
@@ -57,17 +58,24 @@ func registerMetrics() {
 // milliseconds.
 func (s *server) Get(ctx context.Context, in *pb.ResponseSpec) (*pb.ResponseReply, error) {
 	var src = rand.NewSource(time.Now().UnixNano())
+	r := rand.New(src)
 	if in.Latency > 0 {
 		time.Sleep(time.Duration(in.Latency) * time.Millisecond)
 	}
 	promRequests.Inc()
 	promResponses.Inc()
 	promBytesSent.Add(float64(in.Length))
+	var statusCode codes.Code
+	if (r.Float32() < in.ErrorRate) {
+		statusCode = codes.Unknown
+	} else {
+		statusCode = codes.OK
+	}
 	return &pb.ResponseReply{
 		Body:             random_string.RandStringBytesMaskImprSrc(src, int(in.Length)),
 		LastFrameSent:    0,
 		CurrentFrameSent: time.Now().UnixNano(),
-	}, nil
+	}, grpc.Errorf(statusCode, "Error")
 }
 
 // StreamingGet implements a streaming request/response.

@@ -167,7 +167,8 @@ func logFinalReport(good, bad, bytes int64, latencies *hdrhistogram.Histogram, j
 func safeNonStreamingRequest(client pb.ResponderClient,
 	clientTimeout time.Duration,
 	lengthDistribution distribution.Distribution,
-	latencyDistribution distribution.Distribution, r *rand.Rand,
+	latencyDistribution distribution.Distribution,
+	errorRate float32, r *rand.Rand,
 	received chan *MeasuredResponse) {
 	start := time.Now()
 
@@ -182,7 +183,8 @@ func safeNonStreamingRequest(client pb.ResponderClient,
 	resp, err := client.Get(ctx,
 		&pb.ResponseSpec{
 			Length:  int32(lengthDistribution.Get(r.Int31() % 1000)),
-			Latency: latencyDistribution.Get(r.Int31() % 1000)})
+			Latency: latencyDistribution.Get(r.Int31() % 1000),
+			ErrorRate: errorRate})
 	if err != nil {
 		received <- &MeasuredResponse{err: err}
 		return
@@ -197,14 +199,15 @@ func sendNonStreamingRequests(client pb.ResponderClient,
 	shutdownChannel <-chan struct{},
 	clientTimeout time.Duration,
 	lengthDistribution distribution.Distribution,
-	latencyDistribution distribution.Distribution, r *rand.Rand,
+	latencyDistribution distribution.Distribution,
+	errorRate float32, r *rand.Rand,
 	received chan *MeasuredResponse) {
 	for {
 		select {
 		case <-shutdownChannel:
 			return
 		default:
-			safeNonStreamingRequest(client, clientTimeout, lengthDistribution, latencyDistribution, r, received)
+			safeNonStreamingRequest(client, clientTimeout, lengthDistribution, latencyDistribution, errorRate, r, received)
 		}
 	}
 }
@@ -311,6 +314,7 @@ func main() {
 		interval              = flag.Duration("interval", 10*time.Second, "reporting interval")
 		latencyPercentileFlag = flag.String("latencyPercentiles", "50=10,100=100", "response latency percentile distribution.")
 		lengthPercentileFlag  = flag.String("lengthPercentiles", "50=100,100=1000", "response body length percentile distribution.")
+		errorRate             = flag.Float64("errorRate", 0.0, "the chance to return an error")
 		noFinalReport         = flag.Bool("noFinalReport", false, "do not print a final JSON output report")
 		noIntervalReport      = flag.Bool("noIntervalReport", false, "only print the final report, nothing intermediate")
 		streaming             = flag.Bool("streaming", false, "use the streaming features of strest server")
@@ -396,7 +400,7 @@ func main() {
 
 			if !*streaming {
 				sendNonStreamingRequests(client, shutdownChannel, *clientTimeout,
-					lengthDistribution, latencyDistribution, r, received)
+					lengthDistribution, latencyDistribution, float32(*errorRate), r, received)
 			} else {
 				err := sendStreamingRequests(client, shutdownChannel,
 					lengthDistribution, latencyDistribution, *streamingRatio, r, received)
