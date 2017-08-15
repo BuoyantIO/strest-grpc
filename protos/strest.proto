@@ -13,6 +13,7 @@ message ResponseSpec {
   int32 length = 1;
   // how long (in milliseconds) we want the response to wait.
   int64 latency = 2;
+  float errorRate = 3;
 }
 
 message StreamingResponseSpec {

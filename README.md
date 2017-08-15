@@ -50,6 +50,7 @@ Use the `-help` flag with either the client or server to see a list of flags.
 | `-interval`           | `10s`     | How often to report stats to stdout. |
 | `-latencyPercentiles` | `50=10,100=100` | response latency percentile distribution in milliseconds. |
 | `-lengthPercentiles`  | `50=100,100=1000` | response body length percentile. |
+| `-errorRate`          | `0`       | The chance to return an error. |
 | `-metric-addr`        | `<none>`  | Address to use when serving the Prometheus `/metrics` endpoint. No metrics are served if unset. Format is `host:port` or `:port`. |
 | `-noFinalReport`      | `<unset>` | If set, don't print the json latency report at the end. |
 | `-noIntervalReport`   | `<unset>` | If set, only print the final report, nothing intermediate. |
