@@ -51,7 +51,6 @@ func registerMetrics() {
 	prometheus.MustRegister(promResponses)
 	prometheus.MustRegister(promBytesSent)
 	prometheus.MustRegister(promStreamErrors)
-
 }
 
 // Get returns a single response after waiting for in.Count
@@ -66,7 +65,7 @@ func (s *server) Get(ctx context.Context, in *pb.ResponseSpec) (*pb.ResponseRepl
 	promResponses.Inc()
 	promBytesSent.Add(float64(in.Length))
 	var statusCode codes.Code
-	if (r.Float32() < in.ErrorRate) {
+	if r.Float32() < in.ErrorRate {
 		statusCode = codes.Unknown
 	} else {
 		statusCode = codes.OK

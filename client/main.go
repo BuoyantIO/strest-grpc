@@ -54,7 +54,7 @@ type Report struct {
 	Jitter  *Quantiles `json:"jitter"`
 }
 
-// Latency Percentiles
+// Quantiles contains common latency quantiles (p50, p95, p999)
 type Quantiles struct {
 	Quantile50  int64 `json:"50"`
 	Quantile95  int64 `json:"95"`
@@ -62,8 +62,8 @@ type Quantiles struct {
 	Quantile999 int64 `json:"999"`
 }
 
-// 1 day in milliseconds
-const DAY_IN_MS int64 = 24 * 60 * 60 * 1000000
+// DayInMillis represents the number of milliseconds in a 24-hour day.
+const DayInMillis int64 = 24 * 60 * 60 * 1000000
 
 var (
 	sizeSuffixes = []string{"B", "KB", "MB", "GB"}
@@ -105,7 +105,7 @@ func formatBytes(bytes int64) string {
 	order := 0
 	for order < len(sizeSuffixes) && sz >= 1024 {
 		sz = sz / float64(1024)
-		order += 1
+		order++
 	}
 	return fmt.Sprintf("%0.1f%s", sz, sizeSuffixes[order])
 }
@@ -375,10 +375,10 @@ func main() {
 
 	var bytes, totalBytes, count, totalCount, good, totalGood, bad, totalBad, max, min int64
 	min = math.MaxInt64
-	latencyHist := hdrhistogram.New(0, DAY_IN_MS, 3)
-	globalLatencyHist := hdrhistogram.New(0, DAY_IN_MS, 3)
-	jitterHist := hdrhistogram.New(0, DAY_IN_MS, 3)
-	globalJitterHist := hdrhistogram.New(0, DAY_IN_MS, 3)
+	latencyHist := hdrhistogram.New(0, DayInMillis, 3)
+	globalLatencyHist := hdrhistogram.New(0, DayInMillis, 3)
+	jitterHist := hdrhistogram.New(0, DayInMillis, 3)
+	globalJitterHist := hdrhistogram.New(0, DayInMillis, 3)
 	received := make(chan *MeasuredResponse, 10000)
 
 	intervalReport := time.Tick(*interval)
