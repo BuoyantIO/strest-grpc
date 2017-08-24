@@ -319,7 +319,7 @@ func main() {
 		noIntervalReport      = flag.Bool("noIntervalReport", false, "only print the final report, nothing intermediate")
 		streaming             = flag.Bool("streaming", false, "use the streaming features of strest server")
 		streamingRatio        = flag.String("streamingRatio", "1:1", "the ratio of streaming requests/responses")
-		metricAddr            = flag.String("metric-addr", "", "address to serve metrics on")
+		metricAddr            = flag.String("metricAddr", "", "address to serve metrics on")
 	)
 
 	flag.Usage = func() {

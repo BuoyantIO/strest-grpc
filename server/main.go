@@ -147,7 +147,7 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	address := flag.String("address", ":11111", "hostname:port to serve on")
-	metricAddr := flag.String("metric-addr", "", "address to serve metrics on")
+	metricAddr := flag.String("metricAddr", "", "address to serve metrics on")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <url> [flags]\n", path.Base(os.Args[0]))
