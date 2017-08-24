@@ -51,7 +51,7 @@ Use the `-help` flag with either the client or server to see a list of flags.
 | `-latencyPercentiles` | `50=10,100=100` | response latency percentile distribution in milliseconds. |
 | `-lengthPercentiles`  | `50=100,100=1000` | response body length percentile. |
 | `-errorRate`          | `0`       | The chance to return an error. |
-| `-metricAddr`        | `<none>`  | Address to use when serving the Prometheus `/metrics` endpoint. No metrics are served if unset. Format is `host:port` or `:port`. |
+| `-metricAddr`         | `<none>`  | Address to use when serving the Prometheus `/metrics` endpoint. No metrics are served if unset. Format is `host:port` or `:port`. |
 | `-noFinalReport`      | `<unset>` | If set, don't print the json latency report at the end. |
 | `-noIntervalReport`   | `<unset>` | If set, only print the final report, nothing intermediate. |
 | `-streaming`          | `<unset>` | response is a gRPC stream from the strest server. |
