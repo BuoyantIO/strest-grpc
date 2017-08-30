@@ -182,8 +182,8 @@ func safeNonStreamingRequest(client pb.ResponderClient,
 	}
 	resp, err := client.Get(ctx,
 		&pb.ResponseSpec{
-			Length:  int32(lengthDistribution.Get(r.Int31() % 1000)),
-			Latency: latencyDistribution.Get(r.Int31() % 1000),
+			Length:    int32(lengthDistribution.Get(r.Int31() % 1000)),
+			Latency:   latencyDistribution.Get(r.Int31() % 1000),
 			ErrorRate: errorRate})
 	if err != nil {
 		received <- &MeasuredResponse{err: err}
@@ -320,6 +320,7 @@ func main() {
 		streaming             = flag.Bool("streaming", false, "use the streaming features of strest server")
 		streamingRatio        = flag.String("streamingRatio", "1:1", "the ratio of streaming requests/responses")
 		metricAddr            = flag.String("metricAddr", "", "address to serve metrics on")
+		latencyUnit           = flag.String("latencyUnit", "milli", "latency units [milli|micro|nano]")
 	)
 
 	flag.Usage = func() {
@@ -328,6 +329,17 @@ func main() {
 	}
 
 	flag.Parse()
+
+	latencyunit := 1000000
+	if *latencyUnit == "milli" {
+		latencyunit = 1000000
+	} else if *latencyUnit == "micro" {
+		latencyunit = 1000
+	} else if *latencyUnit == "nano" {
+		latencyunit = 1
+	} else {
+		log.Fatalf("latency unit should be [milli | micro | nano].")
+	}
 
 	if *noIntervalReport && *noFinalReport {
 		log.Fatalf("cannot use both -noIntervalReport and -noFinalReport.")
@@ -452,7 +464,7 @@ func main() {
 					bytes += resp.bytes
 					totalBytes += resp.bytes
 
-					latency := resp.latency.Nanoseconds() / 1000000
+					latency := resp.latency.Nanoseconds() / int64(latencyunit)
 					if latency < min {
 						min = latency
 					}
@@ -463,7 +475,7 @@ func main() {
 					globalLatencyHist.RecordValue(latency)
 					promLatencyHistogram.Observe(float64(latency))
 
-					jitter := resp.timeBetweenFrames.Nanoseconds() / 1000000
+					jitter := resp.timeBetweenFrames.Nanoseconds() / int64(latencyunit)
 					promJitterHistogram.Observe(float64(jitter))
 
 					jitterHist.RecordValue(jitter)
