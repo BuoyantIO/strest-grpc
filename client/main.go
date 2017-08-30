@@ -320,7 +320,7 @@ func main() {
 		streaming             = flag.Bool("streaming", false, "use the streaming features of strest server")
 		streamingRatio        = flag.String("streamingRatio", "1:1", "the ratio of streaming requests/responses")
 		metricAddr            = flag.String("metricAddr", "", "address to serve metrics on")
-		latencyUnit           = flag.String("latencyUnit", "milli", "latency units [milli|micro|nano]")
+		latencyUnit           = flag.String("latencyUnit", "ms", "latency units [ms|us|ns]")
 	)
 
 	flag.Usage = func() {
@@ -330,15 +330,15 @@ func main() {
 
 	flag.Parse()
 
-	latencyunit := 1000000
-	if *latencyUnit == "milli" {
-		latencyunit = 1000000
-	} else if *latencyUnit == "micro" {
-		latencyunit = 1000
-	} else if *latencyUnit == "nano" {
-		latencyunit = 1
+	latencyDivisor := int64(1000000)
+	if *latencyUnit == "ms" {
+		latencyDivisor = 1000000
+	} else if *latencyUnit == "us" {
+		latencyDivisor = 1000
+	} else if *latencyUnit == "ns" {
+		latencyDivisor = 1
 	} else {
-		log.Fatalf("latency unit should be [milli | micro | nano].")
+		log.Fatalf("latency unit should be [ms | us | ns].")
 	}
 
 	if *noIntervalReport && *noFinalReport {
@@ -464,7 +464,7 @@ func main() {
 					bytes += resp.bytes
 					totalBytes += resp.bytes
 
-					latency := resp.latency.Nanoseconds() / int64(latencyunit)
+					latency := resp.latency.Nanoseconds() / latencyDivisor
 					if latency < min {
 						min = latency
 					}
@@ -475,7 +475,7 @@ func main() {
 					globalLatencyHist.RecordValue(latency)
 					promLatencyHistogram.Observe(float64(latency))
 
-					jitter := resp.timeBetweenFrames.Nanoseconds() / int64(latencyunit)
+					jitter := resp.timeBetweenFrames.Nanoseconds() / latencyDivisor
 					promJitterHistogram.Observe(float64(jitter))
 
 					jitterHist.RecordValue(jitter)
