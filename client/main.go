@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 // MeasuredResponse tracks the latency of a response and any
@@ -54,7 +55,7 @@ type Report struct {
 	Jitter  *Quantiles `json:"jitter"`
 }
 
-// Latency Percentiles
+// Quantiles contains common latency quantiles (p50, p95, p999)
 type Quantiles struct {
 	Quantile50  int64 `json:"50"`
 	Quantile95  int64 `json:"95"`
@@ -62,8 +63,8 @@ type Quantiles struct {
 	Quantile999 int64 `json:"999"`
 }
 
-// 1 day in milliseconds
-const DAY_IN_MS int64 = 24 * 60 * 60 * 1000000
+// DayInMillis represents the number of milliseconds in a 24-hour day.
+const DayInMillis int64 = 24 * 60 * 60 * 1000000
 
 var (
 	sizeSuffixes = []string{"B", "KB", "MB", "GB"}
@@ -105,7 +106,7 @@ func formatBytes(bytes int64) string {
 	order := 0
 	for order < len(sizeSuffixes) && sz >= 1024 {
 		sz = sz / float64(1024)
-		order += 1
+		order++
 	}
 	return fmt.Sprintf("%0.1f%s", sz, sizeSuffixes[order])
 }
@@ -309,11 +310,12 @@ func main() {
 	var (
 		address               = flag.String("address", "localhost:11111", "hostname:port of strest-grpc service or intermediary")
 		clientTimeout         = flag.Duration("clientTimeout", 0, "timeout for unary client requests. Default: no timeout")
-		concurrency           = flag.Int("concurrency", 1, "client concurrency level")
+		connections           = flag.Int("connections", 1, "number of concurrent connections")
+		streams               = flag.Int("streams", 1, "number of concurrent streams per connection")
 		totalRequests         = flag.Int64("totalRequests", 0, "total number of requests to send. default: infinite")
 		interval              = flag.Duration("interval", 10*time.Second, "reporting interval")
-		latencyPercentileFlag = flag.String("latencyPercentiles", "50=10,100=100", "response latency percentile distribution.")
-		lengthPercentileFlag  = flag.String("lengthPercentiles", "50=100,100=1000", "response body length percentile distribution.")
+		latencyPercentileFlag = flag.String("latencyPercentiles", "100=0", "response latency percentile distribution. (e.g. 50=10,100=100)")
+		lengthPercentileFlag  = flag.String("lengthPercentiles", "100=0", "response body length percentile distribution. (e.g. 50=100,100=1000)")
 		errorRate             = flag.Float64("errorRate", 0.0, "the chance to return an error")
 		noFinalReport         = flag.Bool("noFinalReport", false, "do not print a final JSON output report")
 		noIntervalReport      = flag.Bool("noIntervalReport", false, "only print the final report, nothing intermediate")
@@ -321,6 +323,7 @@ func main() {
 		streamingRatio        = flag.String("streamingRatio", "1:1", "the ratio of streaming requests/responses")
 		metricAddr            = flag.String("metricAddr", "", "address to serve metrics on")
 		latencyUnit           = flag.String("latencyUnit", "ms", "latency units [ms|us|ns]")
+		tlsTrustChainFile     = flag.String("tlsTrustChainFile", "", "the path to the certificate used to validate the remote's signature")
 	)
 
 	flag.Usage = func() {
@@ -345,8 +348,12 @@ func main() {
 		log.Fatalf("cannot use both -noIntervalReport and -noFinalReport.")
 	}
 
-	if *concurrency < 1 {
-		exUsage("concurrency must be at least 1")
+	if *connections < 1 {
+		exUsage("connections must be at least 1")
+	}
+
+	if *streams < 1 {
+		exUsage("streams must be at least 1")
 	}
 
 	latencyPercentiles, err := percentiles.ParsePercentiles(*latencyPercentileFlag)
@@ -375,10 +382,10 @@ func main() {
 
 	var bytes, totalBytes, count, totalCount, good, totalGood, bad, totalBad, max, min int64
 	min = math.MaxInt64
-	latencyHist := hdrhistogram.New(0, DAY_IN_MS, 3)
-	globalLatencyHist := hdrhistogram.New(0, DAY_IN_MS, 3)
-	jitterHist := hdrhistogram.New(0, DAY_IN_MS, 3)
-	globalJitterHist := hdrhistogram.New(0, DAY_IN_MS, 3)
+	latencyHist := hdrhistogram.New(0, DayInMillis, 3)
+	globalLatencyHist := hdrhistogram.New(0, DayInMillis, 3)
+	jitterHist := hdrhistogram.New(0, DayInMillis, 3)
+	globalJitterHist := hdrhistogram.New(0, DayInMillis, 3)
 	received := make(chan *MeasuredResponse, 10000)
 
 	intervalReport := time.Tick(*interval)
@@ -392,40 +399,69 @@ func main() {
 		}()
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(*concurrency)
-	shutdownChannels := make([]chan struct{}, *concurrency)
+	var mainWait sync.WaitGroup
+	mainWait.Add(*connections)
 
-	for i := int(0); i < *concurrency; i++ {
+	concurrency := *connections * *streams
+	shutdownChannels := make([]chan struct{}, concurrency)
+	for c := int(0); c < concurrency; c++ {
 		shutdownChannel := make(chan struct{}, 2)
 		shutdownChannels = append(shutdownChannels, shutdownChannel)
+	}
 
+	var connOpts []grpc.DialOption
+	if *tlsTrustChainFile != "" {
+		creds, err := credentials.NewClientTLSFromFile(*tlsTrustChainFile, "")
+		if err != nil {
+			log.Fatalf("invalid ca cert file: %v", err)
+		}
+		connOpts = append(connOpts, grpc.WithTransportCredentials(creds))
+	} else {
+		connOpts = append(connOpts, grpc.WithInsecure())
+	}
+
+	for c := int(0); c < *connections; c++ {
 		go func() {
-			r := rand.New(rand.NewSource(time.Now().UnixNano()))
+			defer mainWait.Done()
+
+			var connWait sync.WaitGroup
+			connWait.Add(*streams)
+
 			// Set up a connection to the server.
-			conn, err := grpc.Dial(*address, grpc.WithInsecure())
+			conn, err := grpc.Dial(*address, connOpts...)
 			if err != nil {
 				log.Fatalf("did not connect: %v", err)
 			}
 			defer conn.Close()
 			client := pb.NewResponderClient(conn)
 
-			if !*streaming {
-				sendNonStreamingRequests(client, shutdownChannel, *clientTimeout,
-					lengthDistribution, latencyDistribution, float32(*errorRate), r, received)
-			} else {
-				err := sendStreamingRequests(client, shutdownChannel,
-					lengthDistribution, latencyDistribution, *streamingRatio, r, received)
-				if err != nil {
-					log.Fatalf("could not send a request: %v", err)
-				}
+			offset := *streams * c
+			for s := int(0); s < *streams; s++ {
+				shutdownChannel := shutdownChannels[offset+s]
+
+				go func() {
+					defer connWait.Done()
+
+					r := rand.New(rand.NewSource(time.Now().UnixNano()))
+					if !*streaming {
+						sendNonStreamingRequests(client, shutdownChannel, *clientTimeout,
+							lengthDistribution, latencyDistribution, float32(*errorRate), r, received)
+					} else {
+						err := sendStreamingRequests(client, shutdownChannel,
+							lengthDistribution, latencyDistribution, *streamingRatio, r, received)
+						if err != nil {
+							log.Fatalf("could not send a request: %v", err)
+						}
+					}
+				}()
 			}
-			wg.Done()
+
+			connWait.Wait()
 		}()
 	}
 
 	go func() {
-		wg.Add(1)
+		mainWait.Add(1)
 		for {
 			select {
 			case <-interrupt:
@@ -446,7 +482,7 @@ func main() {
 				if !*noFinalReport {
 					logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist, globalJitterHist)
 				}
-				wg.Done()
+				mainWait.Done()
 				return
 
 			case resp := <-received:
@@ -499,6 +535,6 @@ func main() {
 		}
 	}()
 
-	wg.Wait()
+	mainWait.Wait()
 	os.Exit(0)
 }

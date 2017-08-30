@@ -21,6 +21,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 )
 
 type server struct{}
@@ -51,7 +52,6 @@ func registerMetrics() {
 	prometheus.MustRegister(promResponses)
 	prometheus.MustRegister(promBytesSent)
 	prometheus.MustRegister(promStreamErrors)
-
 }
 
 // Get returns a single response after waiting for in.Count
@@ -66,7 +66,7 @@ func (s *server) Get(ctx context.Context, in *pb.ResponseSpec) (*pb.ResponseRepl
 	promResponses.Inc()
 	promBytesSent.Add(float64(in.Length))
 	var statusCode codes.Code
-	if (r.Float32() < in.ErrorRate) {
+	if r.Float32() < in.ErrorRate {
 		statusCode = codes.Unknown
 	} else {
 		statusCode = codes.OK
@@ -146,8 +146,12 @@ func (s *server) StreamingGet(stream pb.Responder_StreamingGetServer) error {
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
-	address := flag.String("address", ":11111", "hostname:port to serve on")
-	metricAddr := flag.String("metricAddr", "", "address to serve metrics on")
+	var (
+		address        = flag.String("address", ":11111", "hostname:port to serve on")
+		metricAddr     = flag.String("metricAddr", "", "address to serve metrics on")
+		tlsCertFile    = flag.String("tlsCertFile", "", "the path to the trust certificate")
+		tlsPrivKeyFile = flag.String("tlsPrivKeyFile", "", "the path to the server's private key")
+	)
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <url> [flags]\n", path.Base(os.Args[0]))
@@ -171,7 +175,16 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer()
+	var opts []grpc.ServerOption
+	if *tlsCertFile != "" && *tlsPrivKeyFile != "" {
+		creds, err := credentials.NewServerTLSFromFile(*tlsCertFile, *tlsPrivKeyFile)
+		if err != nil {
+			log.Fatalf("invalid ca cert file: %v", err)
+		}
+		opts = append(opts, grpc.Creds(creds))
+	}
+
+	s := grpc.NewServer(opts...)
 
 	pb.RegisterResponderServer(s, new(server))
 	s.Serve(lis)
