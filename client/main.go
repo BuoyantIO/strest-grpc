@@ -33,10 +33,15 @@ import (
 // accompaning error. timeBetweenFrames is how long we spend waiting
 // for the next frame to arrive.
 type MeasuredResponse struct {
+	worker            workerID
 	timeBetweenFrames time.Duration
 	latency           time.Duration
 	bytes             uint
 	err               error
+}
+
+type workerID struct {
+	connection, stream uint
 }
 
 func exUsage(msg string) {
@@ -165,7 +170,8 @@ func logFinalReport(good, bad, bytes uint, latencies *hdrhistogram.Histogram, ji
 	}
 }
 
-func safeNonStreamingRequest(client pb.ResponderClient,
+func safeNonStreamingRequest(worker workerID,
+	client pb.ResponderClient,
 	clientTimeout time.Duration,
 	lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution,
@@ -177,15 +183,19 @@ func safeNonStreamingRequest(client pb.ResponderClient,
 	if clientTimeout != time.Duration(0) {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(context.Background(), clientTimeout)
-		defer cancel()
+		defer func() {
+			cancel()
+		}()
 	} else {
 		ctx = context.Background()
 	}
-	resp, err := client.Get(ctx,
-		&pb.ResponseSpec{
-			Length:    int32(lengthDistribution.Get(r.Int31() % 1000)),
-			Latency:   latencyDistribution.Get(r.Int31() % 1000),
-			ErrorRate: errorRate})
+
+	spec := pb.ResponseSpec{
+		Length:    int32(lengthDistribution.Get(r.Int31() % 1000)),
+		Latency:   latencyDistribution.Get(r.Int31() % 1000),
+		ErrorRate: errorRate}
+
+	resp, err := client.Get(ctx, &spec)
 	if err != nil {
 		receiver <- &MeasuredResponse{err: err}
 		return
@@ -193,11 +203,12 @@ func safeNonStreamingRequest(client pb.ResponderClient,
 
 	bytes := uint(len([]byte(resp.Body)))
 	latency := time.Since(start)
-	receiver <- &MeasuredResponse{latency: latency, bytes: bytes}
+	receiver <- &MeasuredResponse{worker: worker, latency: latency, bytes: bytes}
 }
 
-func sendNonStreamingRequests(client pb.ResponderClient,
-	shutdownChannel <-chan struct{},
+func sendNonStreamingRequests(worker workerID,
+	client pb.ResponderClient,
+	shutdown <-chan struct{},
 	clientTimeout time.Duration,
 	lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution,
@@ -206,10 +217,10 @@ func sendNonStreamingRequests(client pb.ResponderClient,
 	results chan<- *MeasuredResponse) {
 	for {
 		select {
-		case <-shutdownChannel:
+		case <-shutdown:
 			return
 		case <-driver:
-			safeNonStreamingRequest(client, clientTimeout, lengthDistribution, latencyDistribution, errorRate, r, results)
+			safeNonStreamingRequest(worker, client, clientTimeout, lengthDistribution, latencyDistribution, errorRate, r, results)
 		}
 	}
 }
@@ -237,8 +248,9 @@ func parseStreamingRatio(streamingRatio string) (int64, int64) {
 	return m, n
 }
 
-func sendStreamingRequests(client pb.ResponderClient,
-	shutdownChannel <-chan struct{},
+func sendStreamingRequests(worker workerID,
+	client pb.ResponderClient,
+	shutdown <-chan struct{},
 	lengthDistribution, latencyDistribution distribution.Distribution,
 	streamingRatio string,
 	r *rand.Rand,
@@ -276,6 +288,7 @@ func sendStreamingRequests(client pb.ResponderClient,
 				timeBetweenFrames := time.Duration(resp.CurrentFrameSent - resp.LastFrameSent)
 				bytes := uint(len([]byte(resp.Body)))
 				results <- &MeasuredResponse{
+					worker,
 					timeBetweenFrames,
 					elapsed,
 					bytes,
@@ -290,7 +303,7 @@ func sendStreamingRequests(client pb.ResponderClient,
 	currentRequest := int64(0)
 	for {
 		select {
-		case <-shutdownChannel:
+		case <-shutdown:
 			return nil
 		default:
 			if (currentRequest % requestRatioM) == 0 {
@@ -439,10 +452,14 @@ func main() {
 	var mainWait sync.WaitGroup
 	mainWait.Add(int(*connections))
 
-	shutdownChannels := make([]chan struct{}, concurrency)
-	for c := uint(0); c < concurrency; c++ {
-		shutdownChannel := make(chan struct{}, 2)
-		shutdownChannels = append(shutdownChannels, shutdownChannel)
+	shutdownChannels := make([][]chan struct{}, *connections)
+	for c := uint(0); c < *connections; c++ {
+		shutdowns := make([]chan struct{}, *streams)
+		for s := uint(0); s < *streams; s++ {
+			shutdowns[s] = make(chan struct{})
+		}
+
+		shutdownChannels[c] = shutdowns
 	}
 
 	var connOpts []grpc.DialOption
@@ -457,8 +474,10 @@ func main() {
 	}
 
 	for c := uint(0); c < *connections; c++ {
-		go func() {
-			defer mainWait.Done()
+		go func(c uint, shutdowns []chan struct{}) {
+			defer func() {
+				mainWait.Done()
+			}()
 
 			var connWait sync.WaitGroup
 			connWait.Add(int(*streams))
@@ -468,32 +487,35 @@ func main() {
 			if err != nil {
 				log.Fatalf("did not connect: %v", err)
 			}
-			defer conn.Close()
+			defer func() {
+				conn.Close()
+			}()
 			client := pb.NewResponderClient(conn)
 
-			offset := *streams * c
 			for s := uint(0); s < *streams; s++ {
-				shutdownChannel := shutdownChannels[offset+s]
+				w := workerID{connection: c, stream: s}
 
-				go func() {
-					defer connWait.Done()
+				go func(worker workerID, shutdown <-chan struct{}) {
+					defer func() {
+						connWait.Done()
+					}()
 
 					r := rand.New(rand.NewSource(time.Now().UnixNano()))
 					if !*streaming {
-						sendNonStreamingRequests(client, shutdownChannel, *clientTimeout,
+						sendNonStreamingRequests(worker, client, shutdown, *clientTimeout,
 							lengthDistribution, latencyDistribution, float32(*errorRate), r, driver, receiver)
 					} else {
-						err := sendStreamingRequests(client, shutdownChannel,
+						err := sendStreamingRequests(worker, client, shutdown,
 							lengthDistribution, latencyDistribution, *streamingRatio, r, driver, receiver)
 						if err != nil {
 							log.Fatalf("could not send a request: %v", err)
 						}
 					}
-				}()
+				}(w, shutdowns[s])
 			}
 
 			connWait.Wait()
-		}()
+		}(c, shutdownChannels[c])
 	}
 
 	go func() {
@@ -513,9 +535,9 @@ func main() {
 				cleanup <- struct{}{}
 
 			case <-cleanup:
-				for _, c := range shutdownChannels {
-					if c != nil {
-						c <- struct{}{}
+				for _, streams := range shutdownChannels {
+					for _, shutdown := range streams {
+						shutdown <- struct{}{}
 					}
 				}
 
