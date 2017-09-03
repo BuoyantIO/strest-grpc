@@ -183,9 +183,7 @@ func safeNonStreamingRequest(worker workerID,
 	if clientTimeout != time.Duration(0) {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(context.Background(), clientTimeout)
-		defer func() {
-			cancel()
-		}()
+		defer cancel()
 	} else {
 		ctx = context.Background()
 	}
@@ -195,6 +193,7 @@ func safeNonStreamingRequest(worker workerID,
 		Latency:   latencyDistribution.Get(r.Int31() % 1000),
 		ErrorRate: errorRate}
 
+	//fmt.Printf("%v: req\n", worker)
 	resp, err := client.Get(ctx, &spec)
 	if err != nil {
 		receiver <- &MeasuredResponse{err: err}
@@ -203,6 +202,7 @@ func safeNonStreamingRequest(worker workerID,
 
 	bytes := uint(len([]byte(resp.Body)))
 	latency := time.Since(start)
+	//fmt.Printf("%v: rsp %v\n", worker, latency)
 	receiver <- &MeasuredResponse{worker: worker, latency: latency, bytes: bytes}
 }
 
@@ -332,8 +332,8 @@ func main() {
 		clientTimeout         = flag.Duration("clientTimeout", 0, "timeout for unary client requests. Default: no timeout")
 		connections           = flag.Uint("connections", 1, "number of concurrent connections")
 		streams               = flag.Uint("streams", 1, "number of concurrent streams per connection")
-		totalTargetRps        = flag.Uint("totalTargetRps", 0, "target requests per second")
 		totalRequests         = flag.Uint("totalRequests", 0, "total number of requests to send. default: infinite")
+		totalTargetRps        = flag.Uint("totalTargetRps", 0, "target requests per second")
 		interval              = flag.Duration("interval", 10*time.Second, "reporting interval")
 		latencyPercentileFlag = flag.String("latencyPercentiles", "100=0", "response latency percentile distribution. (e.g. 50=10,100=100)")
 		lengthPercentileFlag  = flag.String("lengthPercentiles", "100=0", "response body length percentile distribution. (e.g. 50=100,100=1000)")
@@ -410,15 +410,23 @@ func main() {
 
 	concurrency := *connections * *streams
 
-	var sz uint = 10000
+	// By default, allow enough capacity for each worker.
+	capacity := concurrency
+
 	if *totalTargetRps > 0 {
-		t := uint((*interval).Seconds())
-		sz = t * *totalTargetRps
+		// If a target throughput is set, however, we can't know how much work will be queued
+		// at any point.
+		if *totalRequests == 0 {
+			capacity = 10000 // ¯\_(ツ)_/¯
+		} else {
+			capacity = *totalRequests
+		}
 	}
-	receiver := make(chan *MeasuredResponse, sz)
 
 	// Items are sent to this channel to inform sending goroutines when to do work.
-	driver := make(chan struct{}, *totalTargetRps)
+	driver := make(chan struct{}, capacity)
+
+	receiver := make(chan *MeasuredResponse, capacity)
 
 	// If a target rps is specified, it will periodically notify the driving/reporting
 	// goroutine that a full concurrency of work should be driven.
@@ -432,9 +440,17 @@ func main() {
 	// Drive a single request.
 	drive := func() {
 		if *totalRequests > 0 && sendCount == *totalRequests {
+			//fmt.Println("drive: done")
 			return
 		}
+
+		if len(driver) == cap(driver) {
+			return
+		}
+
 		sendCount++
+		//fmt.Printf("drive: signal %d %d/%d\n", sendCount, len(driver), cap(driver))
+
 		driver <- struct{}{}
 	}
 
@@ -474,10 +490,11 @@ func main() {
 	}
 
 	for c := uint(0); c < *connections; c++ {
-		go func(c uint, shutdowns []chan struct{}) {
-			defer func() {
-				mainWait.Done()
-			}()
+		c := c
+		shutdowns := shutdownChannels[c]
+
+		go func() {
+			defer mainWait.Done()
 
 			var connWait sync.WaitGroup
 			connWait.Add(int(*streams))
@@ -487,18 +504,15 @@ func main() {
 			if err != nil {
 				log.Fatalf("did not connect: %v", err)
 			}
-			defer func() {
-				conn.Close()
-			}()
+			defer conn.Close()
 			client := pb.NewResponderClient(conn)
 
 			for s := uint(0); s < *streams; s++ {
-				w := workerID{connection: c, stream: s}
+				worker := workerID{connection: c, stream: s}
+				shutdown := shutdowns[s]
 
-				go func(worker workerID, shutdown <-chan struct{}) {
-					defer func() {
-						connWait.Done()
-					}()
+				go func() {
+					defer connWait.Done()
 
 					r := rand.New(rand.NewSource(time.Now().UnixNano()))
 					if !*streaming {
@@ -511,11 +525,11 @@ func main() {
 							log.Fatalf("could not send a request: %v", err)
 						}
 					}
-				}(w, shutdowns[s])
+				}()
 			}
 
 			connWait.Wait()
-		}(c, shutdownChannels[c])
+		}()
 	}
 
 	go func() {
@@ -535,6 +549,7 @@ func main() {
 				cleanup <- struct{}{}
 
 			case <-cleanup:
+				//fmt.Println("cleanup")
 				for _, streams := range shutdownChannels {
 					for _, shutdown := range streams {
 						shutdown <- struct{}{}
@@ -554,9 +569,25 @@ func main() {
 				return
 
 			case <-driveTick:
-				// This only fires when there is a target rps. Add a full concurrency's
-				// worth of capacity every tick:
-				for i := uint(0); i != concurrency; i++ {
+				// This only fires when there is a target rps. Drive at most
+				// totalTargetRps requests.
+
+				n := *totalTargetRps
+
+				if *totalRequests > 0 {
+					r := *totalRequests - sendCount
+					if r < n {
+						n = r
+					}
+				}
+
+				r := uint(cap(driver) - len(driver))
+				if r < n {
+					n = r
+				}
+
+				//fmt.Printf("drive: %d [%d:%d]\n", n, len(driver), cap(driver))
+				for i := uint(0); i != n; i++ {
 					drive()
 				}
 
@@ -565,6 +596,7 @@ func main() {
 				recvCount++
 				promRequests.Inc()
 
+				//fmt.Printf("recv %d from %v\n", recvCount, resp.worker)
 				if resp.err != nil {
 					bad++
 					totalBad++
