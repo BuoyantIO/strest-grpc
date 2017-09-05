@@ -33,10 +33,15 @@ import (
 // accompaning error. timeBetweenFrames is how long we spend waiting
 // for the next frame to arrive.
 type MeasuredResponse struct {
+	worker            workerID
 	timeBetweenFrames time.Duration
 	latency           time.Duration
-	bytes             int64
+	bytes             uint
 	err               error
+}
+
+type workerID struct {
+	connection, stream uint
 }
 
 func exUsage(msg string) {
@@ -48,9 +53,9 @@ func exUsage(msg string) {
 
 // Report provides top-level good/bad numbers and a latency breakdown.
 type Report struct {
-	Good    int64      `json:"good"`
-	Bad     int64      `json:"bad"`
-	Bytes   int64      `json:"bytes"`
+	Good    uint       `json:"good"`
+	Bad     uint       `json:"bad"`
+	Bytes   uint       `json:"bytes"`
 	Latency *Quantiles `json:"latency"`
 	Jitter  *Quantiles `json:"jitter"`
 }
@@ -101,7 +106,7 @@ func registerMetrics() {
 	prometheus.MustRegister(promLatencyHistogram)
 }
 
-func formatBytes(bytes int64) string {
+func formatBytes(bytes uint) string {
 	sz := float64(bytes)
 	order := 0
 	for order < len(sizeSuffixes) && sz >= 1024 {
@@ -115,7 +120,7 @@ func formatBytes(bytes int64) string {
 func logIntervalReport(
 	now time.Time,
 	interval *time.Duration,
-	good, bad, bytes, min, max int64,
+	good, bad, bytes, min, max uint,
 	latencyHist *hdrhistogram.Histogram,
 	jitterHist *hdrhistogram.Histogram) {
 	if min == math.MaxInt64 {
@@ -136,7 +141,7 @@ func logIntervalReport(
 	)
 }
 
-func logFinalReport(good, bad, bytes int64, latencies *hdrhistogram.Histogram, jitters *hdrhistogram.Histogram) {
+func logFinalReport(good, bad, bytes uint, latencies *hdrhistogram.Histogram, jitters *hdrhistogram.Histogram) {
 	latency := Quantiles{
 		Quantile50:  latencies.ValueAtQuantile(50),
 		Quantile95:  latencies.ValueAtQuantile(95),
@@ -165,12 +170,13 @@ func logFinalReport(good, bad, bytes int64, latencies *hdrhistogram.Histogram, j
 	}
 }
 
-func safeNonStreamingRequest(client pb.ResponderClient,
+func safeNonStreamingRequest(worker workerID,
+	client pb.ResponderClient,
 	clientTimeout time.Duration,
 	lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution,
 	errorRate float32, r *rand.Rand,
-	received chan *MeasuredResponse) {
+	receiver chan<- *MeasuredResponse) {
 	start := time.Now()
 
 	var ctx context.Context
@@ -181,34 +187,40 @@ func safeNonStreamingRequest(client pb.ResponderClient,
 	} else {
 		ctx = context.Background()
 	}
-	resp, err := client.Get(ctx,
-		&pb.ResponseSpec{
-			Length:    int32(lengthDistribution.Get(r.Int31() % 1000)),
-			Latency:   latencyDistribution.Get(r.Int31() % 1000),
-			ErrorRate: errorRate})
+
+	spec := pb.ResponseSpec{
+		Length:    int32(lengthDistribution.Get(r.Int31() % 1000)),
+		Latency:   latencyDistribution.Get(r.Int31() % 1000),
+		ErrorRate: errorRate}
+
+	//fmt.Printf("%v: req\n", worker)
+	resp, err := client.Get(ctx, &spec)
 	if err != nil {
-		received <- &MeasuredResponse{err: err}
+		receiver <- &MeasuredResponse{err: err}
 		return
 	}
 
-	bytes := int64(len([]byte(resp.Body)))
+	bytes := uint(len([]byte(resp.Body)))
 	latency := time.Since(start)
-	received <- &MeasuredResponse{latency: latency, bytes: bytes}
+	//fmt.Printf("%v: rsp %v\n", worker, latency)
+	receiver <- &MeasuredResponse{worker: worker, latency: latency, bytes: bytes}
 }
 
-func sendNonStreamingRequests(client pb.ResponderClient,
-	shutdownChannel <-chan struct{},
+func sendNonStreamingRequests(worker workerID,
+	client pb.ResponderClient,
+	shutdown <-chan struct{},
 	clientTimeout time.Duration,
 	lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution,
 	errorRate float32, r *rand.Rand,
-	received chan *MeasuredResponse) {
+	driver <-chan struct{},
+	results chan<- *MeasuredResponse) {
 	for {
 		select {
-		case <-shutdownChannel:
+		case <-shutdown:
 			return
-		default:
-			safeNonStreamingRequest(client, clientTimeout, lengthDistribution, latencyDistribution, errorRate, r, received)
+		case <-driver:
+			safeNonStreamingRequest(worker, client, clientTimeout, lengthDistribution, latencyDistribution, errorRate, r, results)
 		}
 	}
 }
@@ -236,10 +248,14 @@ func parseStreamingRatio(streamingRatio string) (int64, int64) {
 	return m, n
 }
 
-func sendStreamingRequests(client pb.ResponderClient,
-	shutdownChannel <-chan struct{}, lengthDistribution distribution.Distribution,
-	latencyDistribution distribution.Distribution, streamingRatio string,
-	r *rand.Rand, received chan *MeasuredResponse) error {
+func sendStreamingRequests(worker workerID,
+	client pb.ResponderClient,
+	shutdown <-chan struct{},
+	lengthDistribution, latencyDistribution distribution.Distribution,
+	streamingRatio string,
+	r *rand.Rand,
+	driver <-chan struct{},
+	results chan<- *MeasuredResponse) error {
 
 	stream, err := client.StreamingGet(context.Background())
 	if err != nil {
@@ -253,27 +269,31 @@ func sendStreamingRequests(client pb.ResponderClient,
 	waitc := make(chan struct{})
 	go func() {
 		for {
-			start := time.Now()
-			resp, err := stream.Recv()
-			elapsed := time.Since(start)
+			select {
+			case <-driver:
+				start := time.Now()
+				resp, err := stream.Recv()
+				elapsed := time.Since(start)
 
-			if err == io.EOF {
-				// read done.
-				close(waitc)
-				return
-			}
-			if err != nil {
-				fmt.Println("streaming read failed: ", err)
-				return
-			}
+				if err == io.EOF {
+					// read done.
+					close(waitc)
+					return
+				}
+				if err != nil {
+					fmt.Println("streaming read failed: ", err)
+					return
+				}
 
-			timeBetweenFrames := time.Duration(resp.CurrentFrameSent - resp.LastFrameSent)
-			bytes := int64(len([]byte(resp.Body)))
-			received <- &MeasuredResponse{
-				timeBetweenFrames,
-				elapsed,
-				bytes,
-				err,
+				timeBetweenFrames := time.Duration(resp.CurrentFrameSent - resp.LastFrameSent)
+				bytes := uint(len([]byte(resp.Body)))
+				results <- &MeasuredResponse{
+					worker,
+					timeBetweenFrames,
+					elapsed,
+					bytes,
+					err,
+				}
 			}
 		}
 	}()
@@ -283,7 +303,7 @@ func sendStreamingRequests(client pb.ResponderClient,
 	currentRequest := int64(0)
 	for {
 		select {
-		case <-shutdownChannel:
+		case <-shutdown:
 			return nil
 		default:
 			if (currentRequest % requestRatioM) == 0 {
@@ -310,9 +330,10 @@ func main() {
 	var (
 		address               = flag.String("address", "localhost:11111", "hostname:port of strest-grpc service or intermediary")
 		clientTimeout         = flag.Duration("clientTimeout", 0, "timeout for unary client requests. Default: no timeout")
-		connections           = flag.Int("connections", 1, "number of concurrent connections")
-		streams               = flag.Int("streams", 1, "number of concurrent streams per connection")
-		totalRequests         = flag.Int64("totalRequests", 0, "total number of requests to send. default: infinite")
+		connections           = flag.Uint("connections", 1, "number of concurrent connections")
+		streams               = flag.Uint("streams", 1, "number of concurrent streams per connection")
+		totalRequests         = flag.Uint("totalRequests", 0, "total number of requests to send. default: infinite")
+		totalTargetRps        = flag.Uint("totalTargetRps", 0, "target requests per second")
 		interval              = flag.Duration("interval", 10*time.Second, "reporting interval")
 		latencyPercentileFlag = flag.String("latencyPercentiles", "100=0", "response latency percentile distribution. (e.g. 50=10,100=100)")
 		lengthPercentileFlag  = flag.String("lengthPercentiles", "100=0", "response body length percentile distribution. (e.g. 50=100,100=1000)")
@@ -380,13 +401,51 @@ func main() {
 	interrupt := make(chan os.Signal, 2)
 	signal.Notify(interrupt, syscall.SIGINT)
 
-	var bytes, totalBytes, count, totalCount, good, totalGood, bad, totalBad, max, min int64
+	var bytes, totalBytes, count, sendCount, recvCount, good, totalGood, bad, totalBad, max, min uint
 	min = math.MaxInt64
 	latencyHist := hdrhistogram.New(0, DayInMillis, 3)
 	globalLatencyHist := hdrhistogram.New(0, DayInMillis, 3)
 	jitterHist := hdrhistogram.New(0, DayInMillis, 3)
 	globalJitterHist := hdrhistogram.New(0, DayInMillis, 3)
-	received := make(chan *MeasuredResponse, 10000)
+
+	concurrency := *connections * *streams
+
+	// By default, allow enough capacity for each worker.
+	capacity := concurrency
+
+	if *totalTargetRps > 0 {
+		// Allow several seconds worth of additional capacity in case things back up.
+		capacity = *totalTargetRps * 10
+	}
+
+	// Items are sent to this channel to inform sending goroutines when to do work.
+	driver := make(chan struct{}, capacity)
+
+	receiver := make(chan *MeasuredResponse, capacity)
+
+	// If a target rps is specified, it will periodically notify the driving/reporting
+	// goroutine that a full concurrency of work should be driven.
+	var driveTick <-chan time.Time
+	if *totalTargetRps > 0 {
+		driveTick = time.Tick(time.Second)
+	}
+
+	// Drive a single request.
+	drive := func() {
+		if *totalRequests > 0 && sendCount == *totalRequests {
+			//fmt.Println("drive: done")
+			return
+		}
+
+		if len(driver) == cap(driver) {
+			return
+		}
+
+		sendCount++
+		//fmt.Printf("drive: signal %d %d/%d\n", sendCount, len(driver), cap(driver))
+
+		driver <- struct{}{}
+	}
 
 	intervalReport := time.Tick(*interval)
 	previousInterval := time.Now()
@@ -400,13 +459,16 @@ func main() {
 	}
 
 	var mainWait sync.WaitGroup
-	mainWait.Add(*connections)
+	mainWait.Add(int(*connections))
 
-	concurrency := *connections * *streams
-	shutdownChannels := make([]chan struct{}, concurrency)
-	for c := int(0); c < concurrency; c++ {
-		shutdownChannel := make(chan struct{}, 2)
-		shutdownChannels = append(shutdownChannels, shutdownChannel)
+	shutdownChannels := make([][]chan struct{}, *connections)
+	for c := uint(0); c < *connections; c++ {
+		shutdowns := make([]chan struct{}, *streams)
+		for s := uint(0); s < *streams; s++ {
+			shutdowns[s] = make(chan struct{})
+		}
+
+		shutdownChannels[c] = shutdowns
 	}
 
 	var connOpts []grpc.DialOption
@@ -420,12 +482,15 @@ func main() {
 		connOpts = append(connOpts, grpc.WithInsecure())
 	}
 
-	for c := int(0); c < *connections; c++ {
+	for c := uint(0); c < *connections; c++ {
+		c := c
+		shutdowns := shutdownChannels[c]
+
 		go func() {
 			defer mainWait.Done()
 
 			var connWait sync.WaitGroup
-			connWait.Add(*streams)
+			connWait.Add(int(*streams))
 
 			// Set up a connection to the server.
 			conn, err := grpc.Dial(*address, connOpts...)
@@ -435,20 +500,20 @@ func main() {
 			defer conn.Close()
 			client := pb.NewResponderClient(conn)
 
-			offset := *streams * c
-			for s := int(0); s < *streams; s++ {
-				shutdownChannel := shutdownChannels[offset+s]
+			for s := uint(0); s < *streams; s++ {
+				worker := workerID{connection: c, stream: s}
+				shutdown := shutdowns[s]
 
 				go func() {
 					defer connWait.Done()
 
 					r := rand.New(rand.NewSource(time.Now().UnixNano()))
 					if !*streaming {
-						sendNonStreamingRequests(client, shutdownChannel, *clientTimeout,
-							lengthDistribution, latencyDistribution, float32(*errorRate), r, received)
+						sendNonStreamingRequests(worker, client, shutdown, *clientTimeout,
+							lengthDistribution, latencyDistribution, float32(*errorRate), r, driver, receiver)
 					} else {
-						err := sendStreamingRequests(client, shutdownChannel,
-							lengthDistribution, latencyDistribution, *streamingRatio, r, received)
+						err := sendStreamingRequests(worker, client, shutdown,
+							lengthDistribution, latencyDistribution, *streamingRatio, r, driver, receiver)
 						if err != nil {
 							log.Fatalf("could not send a request: %v", err)
 						}
@@ -462,14 +527,25 @@ func main() {
 
 	go func() {
 		mainWait.Add(1)
+
+		// If there is no target RPS, ensure there's enough capacity for all threads to
+		// operate:
+		if *totalTargetRps == 0 {
+			for i := uint(0); i != concurrency; i++ {
+				drive()
+			}
+		}
+
 		for {
 			select {
 			case <-interrupt:
 				cleanup <- struct{}{}
+
 			case <-cleanup:
-				for _, c := range shutdownChannels {
-					if c != nil {
-						c <- struct{}{}
+				//fmt.Println("cleanup")
+				for _, streams := range shutdownChannels {
+					for _, shutdown := range streams {
+						shutdown <- struct{}{}
 					}
 				}
 
@@ -485,10 +561,35 @@ func main() {
 				mainWait.Done()
 				return
 
-			case resp := <-received:
+			case <-driveTick:
+				// When a target rps is set, it may fire several times a second so that a
+				// full concurrency of work may be scheduled at each interval.
+
+				n := *totalTargetRps
+
+				if *totalRequests > 0 {
+					r := *totalRequests - sendCount
+					if r < n {
+						n = r
+					}
+				}
+
+				r := uint(cap(driver) - len(driver))
+				if r < n {
+					n = r
+				}
+
+				//fmt.Printf("drive: %d [%d:%d]\n", n, len(driver), cap(driver))
+				for i := uint(0); i != n; i++ {
+					drive()
+				}
+
+			case resp := <-receiver:
 				count++
-				totalCount++
+				recvCount++
 				promRequests.Inc()
+
+				//fmt.Printf("recv %d from %v\n", recvCount, resp.worker)
 				if resp.err != nil {
 					bad++
 					totalBad++
@@ -501,11 +602,11 @@ func main() {
 					totalBytes += resp.bytes
 
 					latency := resp.latency.Nanoseconds() / latencyDivisor
-					if latency < min {
-						min = latency
+					if latency < int64(min) {
+						min = uint(latency)
 					}
-					if latency > max {
-						max = latency
+					if latency > int64(max) {
+						max = uint(latency)
 					}
 					latencyHist.RecordValue(latency)
 					globalLatencyHist.RecordValue(latency)
@@ -517,8 +618,13 @@ func main() {
 					jitterHist.RecordValue(jitter)
 					globalJitterHist.RecordValue(jitter)
 				}
-				if *totalRequests > 0 && totalCount >= *totalRequests {
+
+				if recvCount == *totalRequests {
+					// N.B. recvCount > 0, so totalRequests >0
 					cleanup <- struct{}{}
+				} else if *totalTargetRps == 0 {
+					// If there's no target rps, just restore capacity immediately.
+					drive()
 				}
 
 			case t := <-intervalReport:

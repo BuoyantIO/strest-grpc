@@ -1,7 +1,15 @@
 #!/bin/sh
 
-set -x
+set -ex
 
-GOOS=linux GOARCH=amd64 go build -o strest-server-linux server/main.go
-GOOS=linux GOARCH=amd64 go build -o strest-client-linux client/main.go
-GOOS=linux GOARCH=amd64 go build -o strest-max-rps-linux max-rps/main.go
+export GOARCH=amd64
+
+for GOOS in darwin linux ; do
+    dir="release/$GOOS"
+    mkdir -p "$dir"
+
+    export GOOS
+    go build -o "$dir/strest-grpc-client" client/main.go
+    go build -o "$dir/strest-grpc-server" server/main.go
+    go build -o "$dir/strest-grpc-max-rps" max-rps/main.go
+done
