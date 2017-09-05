@@ -414,13 +414,8 @@ func main() {
 	capacity := concurrency
 
 	if *totalTargetRps > 0 {
-		// If a target throughput is set, however, we can't know how much work will be queued
-		// at any point.
-		if *totalRequests == 0 {
-			capacity = 10000 // ¯\_(ツ)_/¯
-		} else {
-			capacity = *totalRequests
-		}
+		// Allow several seconds worth of additional capacity in case things back up.
+		capacity = *totalTargetRps * 10
 	}
 
 	// Items are sent to this channel to inform sending goroutines when to do work.
