@@ -427,9 +427,7 @@ func main() {
 	// goroutine that a full concurrency of work should be driven.
 	var driveTick <-chan time.Time
 	if *totalTargetRps > 0 {
-		tps := *totalTargetRps / concurrency
-		interval := uint(time.Second) / tps
-		driveTick = time.Tick(time.Duration(int(interval)))
+		driveTick = time.Tick(time.Second)
 	}
 
 	// Drive a single request.
@@ -564,8 +562,8 @@ func main() {
 				return
 
 			case <-driveTick:
-				// This only fires when there is a target rps. Drive at most
-				// totalTargetRps requests.
+				// When a target rps is set, it may fire several times a second so that a
+				// full concurrency of work may be scheduled at each interval.
 
 				n := *totalTargetRps
 
