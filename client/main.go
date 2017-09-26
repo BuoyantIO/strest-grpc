@@ -487,7 +487,11 @@ func main() {
 	af := "tcp"
 	if *useUnixAddr {
 		af = "unix"
+
+		// Override the authority so it doesn't include something illegal like a path.
+		connOpts = append(connOpts, grpc.WithAuthority("strest.local"))
 	}
+
 	dial := func(addr string, timeout time.Duration) (net.Conn, error) {
 		return net.DialTimeout(af, addr, timeout)
 	}
