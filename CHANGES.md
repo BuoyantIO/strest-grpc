@@ -1,9 +1,13 @@
+## Upcoming: 0.1.0
+
+* Add support for Unix Domain sockets.
+
 ## 0.0.3
 
 * Add `strest-max-rps`, a tool for determining the max RPS of a backend.
 * [client] Add `-totalTargetRps` to throttle requests to a fixed rate.
-* [client] Rename `-concurrency` to `-connections`
-* [client] Add `-streams` to configure per-connection concurrency
+* [client] Rename `-concurrency` to `-connections`.
+* [client] Add `-streams` to configure per-connection concurrency.
 * [client] Add `-tlsTrustChainFile` to cause the client to establish and validate TLS connections.
 * [server] Add `-tlsCertFile` and `-tlsPrivKeyFile`, which causes the server to accept TLS connections.
 * [client] Do not add latency by default.
