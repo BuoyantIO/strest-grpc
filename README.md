@@ -45,6 +45,7 @@ Use the `-help` flag with either the client or server to see a list of flags.
 | Flag                  | Default   | Description |
 |-----------------------|-----------|-------------|
 | `-address`            | `localhost:11111` | hostname:port of strest-grpc service or intermediary. |
+| `-unix`               | false     | Causes the `address` to be interpreted as a Unix Domain Socket. |
 | `-clientTimeout`      | `<none>`  | Timeout for unary client request. No timeout is applied if unset. |
 | `-concurrency`        | `1`       | Number of goroutines to run, each at the specified QPS level. Measure total QPS as `qps * concurrency`. |
 | `-interval`           | `10s`     | How often to report stats to stdout. |

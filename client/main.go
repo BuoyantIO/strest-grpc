@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -328,7 +329,8 @@ func sendStreamingRequests(worker workerID,
 
 func main() {
 	var (
-		address               = flag.String("address", "localhost:11111", "hostname:port of strest-grpc service or intermediary")
+		address               = flag.String("address", "localhost:11111", "address of strest-grpc service or intermediary")
+		useUnixAddr           = flag.Bool("unix", false, "use Unix Domain Sockets instead of TCP")
 		clientTimeout         = flag.Duration("clientTimeout", 0, "timeout for unary client requests. Default: no timeout")
 		connections           = flag.Uint("connections", 1, "number of concurrent connections")
 		streams               = flag.Uint("streams", 1, "number of concurrent streams per connection")
@@ -482,6 +484,19 @@ func main() {
 		connOpts = append(connOpts, grpc.WithInsecure())
 	}
 
+	af := "tcp"
+	if *useUnixAddr {
+		af = "unix"
+
+		// Override the authority so it doesn't include something illegal like a path.
+		connOpts = append(connOpts, grpc.WithAuthority("strest.local"))
+	}
+
+	dial := func(addr string, timeout time.Duration) (net.Conn, error) {
+		return net.DialTimeout(af, addr, timeout)
+	}
+	connOpts = append(connOpts, grpc.WithDialer(dial))
+
 	for c := uint(0); c < *connections; c++ {
 		c := c
 		shutdowns := shutdownChannels[c]
@@ -492,7 +507,6 @@ func main() {
 			var connWait sync.WaitGroup
 			connWait.Add(int(*streams))
 
-			// Set up a connection to the server.
 			conn, err := grpc.Dial(*address, connOpts...)
 			if err != nil {
 				log.Fatalf("did not connect: %v", err)

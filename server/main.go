@@ -147,7 +147,8 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	var (
-		address        = flag.String("address", ":11111", "hostname:port to serve on")
+		address        = flag.String("address", ":11111", "address to serve on")
+		useUnixAddr    = flag.Bool("unix", false, "use Unix Domain Sockets instead of TCP")
 		metricAddr     = flag.String("metricAddr", "", "address to serve metrics on")
 		tlsCertFile    = flag.String("tlsCertFile", "", "the path to the trust certificate")
 		tlsPrivKeyFile = flag.String("tlsPrivKeyFile", "", "the path to the server's private key")
@@ -170,9 +171,13 @@ func main() {
 
 	fmt.Println("starting gRPC server on", *address)
 
-	lis, err := net.Listen("tcp", *address)
+	af := "tcp"
+	if *useUnixAddr {
+		af = "unix"
+	}
+	lis, err := net.Listen(af, *address)
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		log.Fatalf("listening on %s:%s: %v", af, *address, err)
 	}
 
 	var opts []grpc.ServerOption
