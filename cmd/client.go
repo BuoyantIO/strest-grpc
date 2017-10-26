@@ -22,7 +22,7 @@ func init() {
 	RootCmd.AddCommand(clientCmd)
 	flags := clientCmd.PersistentFlags()
 	flags.StringVar(&clientCfg.Address, "address", "localhost:1111", "address of strest-grpc service or intermediary")
-	flags.BoolVar(&clientCfg.UseUnixAddr, "unix", false, "use Unix Domain Sockets instead of TCP")
+	flags.BoolVarP(&clientCfg.UseUnixAddr, "unix", "u", false, "use Unix Domain Sockets instead of TCP")
 	flags.DurationVar(&clientCfg.ClientTimeout, "clientTimeout", 0, "timeout for unary client requests. Default: no timeout")
 	flags.UintVar(&clientCfg.Connections, "connections", 1, "number of concurrent connections")
 	flags.UintVar(&clientCfg.Streams, "streams", 1, "number of concurrent streams per connection")

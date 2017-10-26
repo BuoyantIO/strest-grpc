@@ -28,7 +28,7 @@ func init() {
 	RootCmd.AddCommand(serverCmd)
 	flags := serverCmd.PersistentFlags()
 	flags.StringVar(&serverAddress, "address", ":11111", "address to serve on")
-	flags.BoolVar(&serverUseUnixAddr, "unix", false, "use Unix Domain Sockets instead of TCP")
+	flags.BoolVarP(&serverUseUnixAddr, "unix", "u", false, "use Unix Domain Sockets instead of TCP")
 	flags.StringVar(&tlsCertFile, "tlsCertFile", "", "the path to the trust certificate")
 	flags.StringVar(&tlsPrivKeyFile, "tlsPrivKeyFile", "", "the path to the server's private key")
 }

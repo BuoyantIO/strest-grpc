@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"flag"
 	"time"
 
 	maxrps "github.com/buoyantio/strest-grpc/max-rps"
@@ -25,5 +24,5 @@ func init() {
 	flags.StringVar(&cfg.Address, "address", "localhost:11111", "hostname:port of strest-grpc service or intermediary")
 	flags.StringVar(&cfg.ConcurrencyLevels, "concurrencyLevels", "1,5,10,20,30", "levels of concurrency to test with")
 	flags.DurationVar(&cfg.TimePerLevel, "timePerLevel", 1*time.Second, "how much time to spend testing each concurrency level")
-	flag.BoolVar(&cfg.Debug, "debug", false, "print out some extra information for debugging")
+	flags.BoolVarP(&cfg.Debug, "debug", "d", false, "print out some extra information for debugging")
 }
