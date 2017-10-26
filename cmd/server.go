@@ -19,8 +19,7 @@ var serverCmd = &cobra.Command{
 	Short: "run the strest-grpc server",
 	Run: func(cmd *cobra.Command, args []string) {
 		server.Run(
-			&address, &useUnixAddr, &metricAddr, &tlsCertFile, &tlsPrivKeyFile
-		)
+			&address, &useUnixAddr, &metricAddr, &tlsCertFile, &tlsPrivKeyFile)
 	},
 	Args: cobra.NoArgs,
 }
