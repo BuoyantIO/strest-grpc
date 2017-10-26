@@ -1,16 +1,13 @@
-package main
+package server
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log"
 	"math/rand"
 	"net"
 	"net/http"
-	"os"
-	"path"
 	"time"
 
 	"github.com/buoyantio/strest-grpc/client/distribution"
@@ -143,23 +140,12 @@ func (s *server) StreamingGet(stream pb.Responder_StreamingGetServer) error {
 	}
 }
 
-func main() {
+func Run(address *string,
+	useUnixAddr *bool,
+	metricAddr *string,
+	tlsCertFile *string,
+	tlsPrivKeyFile *string) {
 	rand.Seed(time.Now().UnixNano())
-
-	var (
-		address        = flag.String("address", ":11111", "address to serve on")
-		useUnixAddr    = flag.Bool("unix", false, "use Unix Domain Sockets instead of TCP")
-		metricAddr     = flag.String("metricAddr", "", "address to serve metrics on")
-		tlsCertFile    = flag.String("tlsCertFile", "", "the path to the trust certificate")
-		tlsPrivKeyFile = flag.String("tlsPrivKeyFile", "", "the path to the server's private key")
-	)
-
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s <url> [flags]\n", path.Base(os.Args[0]))
-		flag.PrintDefaults()
-	}
-
-	flag.Parse()
 
 	if *metricAddr != "" {
 		registerMetrics()
