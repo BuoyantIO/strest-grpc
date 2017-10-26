@@ -7,24 +7,26 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var address string
-var useUnixAddr bool
-var clientTimeout time.Duration
-var connections uint
-var streams uint
-var totalRequests uint
-var totalTargetRps uint
-var interval time.Duration
-var latencyPercentiles string
-var lengthPercentiles string
-var errorRate float64
-var noFinalReport bool
-var noIntervalReport bool
-var streaming bool
-var streamingRatio string
-var metricAddr string
-var latencyUnit string
-var tlsTrustChainFile string
+var (
+	address            string
+	useUnixAddr        bool
+	clientTimeout      time.Duration
+	connections        uint
+	streams            uint
+	totalRequests      uint
+	totalTargetRps     uint
+	interval           time.Duration
+	latencyPercentiles string
+	lengthPercentiles  string
+	errorRate          float64
+	noFinalReport      bool
+	noIntervalReport   bool
+	streaming          bool
+	streamingRatio     string
+	metricAddr         string
+	latencyUnit        string
+	tlsTrustChainFile  string
+)
 
 var clientCmd = &cobra.Command{
 	Use:   "client",

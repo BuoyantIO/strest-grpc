@@ -13,6 +13,7 @@ var RootCmd = &cobra.Command{
 	Long: `A load tester for stress testing grpc intermediaries.
 
 Find more information at https://github.com/buoyantio/strest-grpc.`,
+	Args: cobra.NoArgs,
 }
 
 // Execute adds all child commands to the root command sets flags appropriately.

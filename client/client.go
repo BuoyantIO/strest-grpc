@@ -328,7 +328,24 @@ func sendStreamingRequests(worker workerID,
 }
 
 // TODO: this would be much less ugly if the configuration was either stored in a struct, or used viper...
-func Run(address string, useUnixAddr bool, clientTimeout time.Duration, connections uint, streams uint, totalRequests uint, totalTargetRps uint, interval time.Duration, latencyPercentileFlag string, lengthPercentileFlag string, errorRate float64, noIntervalReport bool, noFinalReport bool, streaming bool, streamingRatio string, metricAddr string, latencyUnit string, tlsTrustChainFile string) {
+func Run(address string,
+	useUnixAddr bool,
+	clientTimeout time.Duration,
+	connections uint,
+	streams uint,
+	totalRequests uint,
+	totalTargetRps uint,
+	interval time.Duration,
+	latencyPercentileFlag string,
+	lengthPercentileFlag string,
+	errorRate float64,
+	noIntervalReport bool,
+	noFinalReport bool,
+	streaming bool,
+	streamingRatio string,
+	metricAddr string,
+	latencyUnit string,
+	tlsTrustChainFile string) {
 
 	latencyDivisor := int64(1000000)
 	if latencyUnit == "ms" {
