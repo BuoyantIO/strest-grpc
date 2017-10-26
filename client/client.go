@@ -327,50 +327,55 @@ func sendStreamingRequests(worker workerID,
 	}
 }
 
+/// Configuration to run a client.
+type Config struct {
+	Address            string
+	UseUnixAddr        bool
+	ClientTimeout      time.Duration
+	Connections        uint
+	Streams            uint
+	TotalRequests      uint
+	TotalTargetRps     uint
+	Interval           time.Duration
+	LatencyPercentiles string
+	LengthPercentiles  string
+	ErrorRate          float64
+	NoIntervalReport   bool
+	NoFinalReport      bool
+	Streaming          bool
+	StreamingRatio     string
+	MetricAddr         string
+	LatencyUnit        string
+	TlsTrustChainFile  string
+}
+
 // TODO: this would be much less ugly if the configuration was either stored in a struct, or used viper...
-func Run(address string,
-	useUnixAddr bool,
-	clientTimeout time.Duration,
-	connections uint,
-	streams uint,
-	totalRequests uint,
-	totalTargetRps uint,
-	interval time.Duration,
-	latencyPercentileFlag string,
-	lengthPercentileFlag string,
-	errorRate float64,
-	noIntervalReport bool,
-	noFinalReport bool,
-	streaming bool,
-	streamingRatio string,
-	metricAddr string,
-	latencyUnit string,
-	tlsTrustChainFile string) {
+func (cfg Config) Run() {
 
 	latencyDivisor := int64(1000000)
-	if latencyUnit == "ms" {
+	if cfg.LatencyUnit == "ms" {
 		latencyDivisor = 1000000
-	} else if latencyUnit == "us" {
+	} else if cfg.LatencyUnit == "us" {
 		latencyDivisor = 1000
-	} else if latencyUnit == "ns" {
+	} else if cfg.LatencyUnit == "ns" {
 		latencyDivisor = 1
 	} else {
 		log.Fatalf("latency unit should be [ms | us | ns].")
 	}
 
-	if noIntervalReport && noFinalReport {
+	if cfg.NoIntervalReport && cfg.NoFinalReport {
 		log.Fatalf("cannot use both -noIntervalReport and -noFinalReport.")
 	}
 
-	if connections < 1 {
+	if cfg.Connections < 1 {
 		exUsage("connections must be at least 1")
 	}
 
-	if streams < 1 {
+	if cfg.Streams < 1 {
 		exUsage("streams must be at least 1")
 	}
 
-	latencyPercentiles, err := percentiles.ParsePercentiles(latencyPercentileFlag)
+	latencyPercentiles, err := percentiles.ParsePercentiles(cfg.LatencyPercentiles)
 	if err != nil {
 		log.Fatalf("latencyPercentiles was not valid: %v", err)
 	}
@@ -380,7 +385,7 @@ func Run(address string,
 		log.Fatalf("unable to create latency distribution: %v", err)
 	}
 
-	lengthPercentiles, err := percentiles.ParsePercentiles(lengthPercentileFlag)
+	lengthPercentiles, err := percentiles.ParsePercentiles(cfg.LengthPercentiles)
 	if err != nil {
 		log.Fatalf("lengthPercentiles was not valid: %v", err)
 	}
@@ -401,14 +406,14 @@ func Run(address string,
 	jitterHist := hdrhistogram.New(0, DayInMillis, 3)
 	globalJitterHist := hdrhistogram.New(0, DayInMillis, 3)
 
-	concurrency := connections * streams
+	concurrency := cfg.Connections * cfg.Streams
 
 	// By default, allow enough capacity for each worker.
 	capacity := concurrency
 
-	if totalTargetRps > 0 {
+	if cfg.TotalTargetRps > 0 {
 		// Allow several seconds worth of additional capacity in case things back up.
-		capacity = totalTargetRps * 10
+		capacity = cfg.TotalTargetRps * 10
 	}
 
 	// Items are sent to this channel to inform sending goroutines when to do work.
@@ -419,13 +424,13 @@ func Run(address string,
 	// If a target rps is specified, it will periodically notify the driving/reporting
 	// goroutine that a full concurrency of work should be driven.
 	var driveTick <-chan time.Time
-	if totalTargetRps > 0 {
+	if cfg.TotalTargetRps > 0 {
 		driveTick = time.Tick(time.Second)
 	}
 
 	// Drive a single request.
 	drive := func() {
-		if totalRequests > 0 && sendCount == totalRequests {
+		if cfg.TotalRequests > 0 && sendCount == cfg.TotalRequests {
 			//fmt.Println("drive: done")
 			return
 		}
@@ -440,24 +445,24 @@ func Run(address string,
 		driver <- struct{}{}
 	}
 
-	intervalReport := time.Tick(interval)
-	previousInterval := time.Now()
+	intervalReport := time.Tick(cfg.Interval)
+	previousinterval := time.Now()
 
-	if metricAddr != "" {
+	if cfg.MetricAddr != "" {
 		registerMetrics()
 		go func() {
 			http.Handle("/metrics", promhttp.Handler())
-			http.ListenAndServe(metricAddr, nil)
+			http.ListenAndServe(cfg.MetricAddr, nil)
 		}()
 	}
 
 	var mainWait sync.WaitGroup
-	mainWait.Add(int(connections))
+	mainWait.Add(int(cfg.Connections))
 
-	shutdownChannels := make([][]chan struct{}, connections)
-	for c := uint(0); c < connections; c++ {
-		shutdowns := make([]chan struct{}, streams)
-		for s := uint(0); s < streams; s++ {
+	shutdownChannels := make([][]chan struct{}, cfg.Connections)
+	for c := uint(0); c < cfg.Connections; c++ {
+		shutdowns := make([]chan struct{}, cfg.Streams)
+		for s := uint(0); s < cfg.Streams; s++ {
 			shutdowns[s] = make(chan struct{})
 		}
 
@@ -465,8 +470,8 @@ func Run(address string,
 	}
 
 	var connOpts []grpc.DialOption
-	if tlsTrustChainFile != "" {
-		creds, err := credentials.NewClientTLSFromFile(tlsTrustChainFile, "")
+	if cfg.TlsTrustChainFile != "" {
+		creds, err := credentials.NewClientTLSFromFile(cfg.TlsTrustChainFile, "")
 		if err != nil {
 			log.Fatalf("invalid ca cert file: %v", err)
 		}
@@ -476,7 +481,7 @@ func Run(address string,
 	}
 
 	af := "tcp"
-	if useUnixAddr {
+	if cfg.UseUnixAddr {
 		af = "unix"
 
 		// Override the authority so it doesn't include something illegal like a path.
@@ -488,7 +493,7 @@ func Run(address string,
 	}
 	connOpts = append(connOpts, grpc.WithDialer(dial))
 
-	for c := uint(0); c < connections; c++ {
+	for c := uint(0); c < cfg.Connections; c++ {
 		c := c
 		shutdowns := shutdownChannels[c]
 
@@ -496,16 +501,16 @@ func Run(address string,
 			defer mainWait.Done()
 
 			var connWait sync.WaitGroup
-			connWait.Add(int(streams))
+			connWait.Add(int(cfg.Streams))
 
-			conn, err := grpc.Dial(address, connOpts...)
+			conn, err := grpc.Dial(cfg.Address, connOpts...)
 			if err != nil {
 				log.Fatalf("did not connect: %v", err)
 			}
 			defer conn.Close()
 			client := pb.NewResponderClient(conn)
 
-			for s := uint(0); s < streams; s++ {
+			for s := uint(0); s < cfg.Streams; s++ {
 				worker := workerID{connection: c, stream: s}
 				shutdown := shutdowns[s]
 
@@ -513,12 +518,12 @@ func Run(address string,
 					defer connWait.Done()
 
 					r := rand.New(rand.NewSource(time.Now().UnixNano()))
-					if !streaming {
-						sendNonStreamingRequests(worker, client, shutdown, clientTimeout,
-							lengthDistribution, latencyDistribution, float32(errorRate), r, driver, receiver)
+					if !cfg.Streaming {
+						sendNonStreamingRequests(worker, client, shutdown, cfg.ClientTimeout,
+							lengthDistribution, latencyDistribution, float32(cfg.ErrorRate), r, driver, receiver)
 					} else {
 						err := sendStreamingRequests(worker, client, shutdown,
-							lengthDistribution, latencyDistribution, streamingRatio, r, driver, receiver)
+							lengthDistribution, latencyDistribution, cfg.StreamingRatio, r, driver, receiver)
 						if err != nil {
 							log.Fatalf("could not send a request: %v", err)
 						}
@@ -535,7 +540,7 @@ func Run(address string,
 
 		// If there is no target RPS, ensure there's enough capacity for all threads to
 		// operate:
-		if totalTargetRps == 0 {
+		if cfg.TotalTargetRps == 0 {
 			for i := uint(0); i != concurrency; i++ {
 				drive()
 			}
@@ -554,13 +559,13 @@ func Run(address string,
 					}
 				}
 
-				if !noIntervalReport && count > 0 {
-					t := previousInterval.Add(interval)
-					logIntervalReport(t, &interval, good, bad, bytes, min, max,
+				if !cfg.NoIntervalReport && count > 0 {
+					t := previousinterval.Add(cfg.Interval)
+					logIntervalReport(t, &cfg.Interval, good, bad, bytes, min, max,
 						latencyHist, jitterHist)
 				}
 
-				if !noFinalReport {
+				if !cfg.NoFinalReport {
 					logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist, globalJitterHist)
 				}
 				mainWait.Done()
@@ -570,10 +575,10 @@ func Run(address string,
 				// When a target rps is set, it may fire several times a second so that a
 				// full concurrency of work may be scheduled at each interval.
 
-				n := totalTargetRps
+				n := cfg.TotalTargetRps
 
-				if totalRequests > 0 {
-					r := totalRequests - sendCount
+				if cfg.TotalRequests > 0 {
+					r := cfg.TotalRequests - sendCount
 					if r < n {
 						n = r
 					}
@@ -624,24 +629,24 @@ func Run(address string,
 					globalJitterHist.RecordValue(jitter)
 				}
 
-				if recvCount == totalRequests {
+				if recvCount == cfg.TotalRequests {
 					// N.B. recvCount > 0, so totalRequests >0
 					cleanup <- struct{}{}
-				} else if totalTargetRps == 0 {
+				} else if cfg.TotalTargetRps == 0 {
 					// If there's no target rps, just restore capacity immediately.
 					drive()
 				}
 
 			case t := <-intervalReport:
-				if noIntervalReport {
+				if cfg.NoIntervalReport {
 					continue
 				}
-				logIntervalReport(t, &interval, good, bad, bytes, min, max,
+				logIntervalReport(t, &cfg.Interval, good, bad, bytes, min, max,
 					latencyHist, jitterHist)
 				bytes, count, good, bad, max, min = 0, 0, 0, 0, 0, math.MaxInt64
 				latencyHist.Reset()
 				jitterHist.Reset()
-				previousInterval = t
+				previousinterval = t
 			}
 		}
 	}()
