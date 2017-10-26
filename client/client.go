@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"encoding/json"
@@ -327,59 +327,33 @@ func sendStreamingRequests(worker workerID,
 	}
 }
 
-func main() {
-	var (
-		address               = flag.String("address", "localhost:11111", "address of strest-grpc service or intermediary")
-		useUnixAddr           = flag.Bool("unix", false, "use Unix Domain Sockets instead of TCP")
-		clientTimeout         = flag.Duration("clientTimeout", 0, "timeout for unary client requests. Default: no timeout")
-		connections           = flag.Uint("connections", 1, "number of concurrent connections")
-		streams               = flag.Uint("streams", 1, "number of concurrent streams per connection")
-		totalRequests         = flag.Uint("totalRequests", 0, "total number of requests to send. default: infinite")
-		totalTargetRps        = flag.Uint("totalTargetRps", 0, "target requests per second")
-		interval              = flag.Duration("interval", 10*time.Second, "reporting interval")
-		latencyPercentileFlag = flag.String("latencyPercentiles", "100=0", "response latency percentile distribution. (e.g. 50=10,100=100)")
-		lengthPercentileFlag  = flag.String("lengthPercentiles", "100=0", "response body length percentile distribution. (e.g. 50=100,100=1000)")
-		errorRate             = flag.Float64("errorRate", 0.0, "the chance to return an error")
-		noFinalReport         = flag.Bool("noFinalReport", false, "do not print a final JSON output report")
-		noIntervalReport      = flag.Bool("noIntervalReport", false, "only print the final report, nothing intermediate")
-		streaming             = flag.Bool("streaming", false, "use the streaming features of strest server")
-		streamingRatio        = flag.String("streamingRatio", "1:1", "the ratio of streaming requests/responses")
-		metricAddr            = flag.String("metricAddr", "", "address to serve metrics on")
-		latencyUnit           = flag.String("latencyUnit", "ms", "latency units [ms|us|ns]")
-		tlsTrustChainFile     = flag.String("tlsTrustChainFile", "", "the path to the certificate used to validate the remote's signature")
-	)
-
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [flags]\n", path.Base(os.Args[0]))
-		flag.PrintDefaults()
-	}
-
-	flag.Parse()
+// TODO: this would be much less ugly if the configuration was either stored in a struct, or used viper...
+func Run(address string, useUnixAddr bool, clientTimeout time.Duration, connections uint, streams uint, totalRequests uint, totalTargetRps uint, interval time.Duration, latencyPercentileFlag string, lengthPercentileFlag string, errorRate float64, noIntervalReport bool, noFinalReport bool, streaming bool, streamingRatio string, metricAddr string, latencyUnit string, tlsTrustChainFile string) {
 
 	latencyDivisor := int64(1000000)
-	if *latencyUnit == "ms" {
+	if latencyUnit == "ms" {
 		latencyDivisor = 1000000
-	} else if *latencyUnit == "us" {
+	} else if latencyUnit == "us" {
 		latencyDivisor = 1000
-	} else if *latencyUnit == "ns" {
+	} else if latencyUnit == "ns" {
 		latencyDivisor = 1
 	} else {
 		log.Fatalf("latency unit should be [ms | us | ns].")
 	}
 
-	if *noIntervalReport && *noFinalReport {
+	if noIntervalReport && noFinalReport {
 		log.Fatalf("cannot use both -noIntervalReport and -noFinalReport.")
 	}
 
-	if *connections < 1 {
+	if connections < 1 {
 		exUsage("connections must be at least 1")
 	}
 
-	if *streams < 1 {
+	if streams < 1 {
 		exUsage("streams must be at least 1")
 	}
 
-	latencyPercentiles, err := percentiles.ParsePercentiles(*latencyPercentileFlag)
+	latencyPercentiles, err := percentiles.ParsePercentiles(latencyPercentileFlag)
 	if err != nil {
 		log.Fatalf("latencyPercentiles was not valid: %v", err)
 	}
@@ -389,7 +363,7 @@ func main() {
 		log.Fatalf("unable to create latency distribution: %v", err)
 	}
 
-	lengthPercentiles, err := percentiles.ParsePercentiles(*lengthPercentileFlag)
+	lengthPercentiles, err := percentiles.ParsePercentiles(lengthPercentileFlag)
 	if err != nil {
 		log.Fatalf("lengthPercentiles was not valid: %v", err)
 	}
@@ -410,14 +384,14 @@ func main() {
 	jitterHist := hdrhistogram.New(0, DayInMillis, 3)
 	globalJitterHist := hdrhistogram.New(0, DayInMillis, 3)
 
-	concurrency := *connections * *streams
+	concurrency := connections * streams
 
 	// By default, allow enough capacity for each worker.
 	capacity := concurrency
 
-	if *totalTargetRps > 0 {
+	if totalTargetRps > 0 {
 		// Allow several seconds worth of additional capacity in case things back up.
-		capacity = *totalTargetRps * 10
+		capacity = totalTargetRps * 10
 	}
 
 	// Items are sent to this channel to inform sending goroutines when to do work.
@@ -428,13 +402,13 @@ func main() {
 	// If a target rps is specified, it will periodically notify the driving/reporting
 	// goroutine that a full concurrency of work should be driven.
 	var driveTick <-chan time.Time
-	if *totalTargetRps > 0 {
+	if totalTargetRps > 0 {
 		driveTick = time.Tick(time.Second)
 	}
 
 	// Drive a single request.
 	drive := func() {
-		if *totalRequests > 0 && sendCount == *totalRequests {
+		if totalRequests > 0 && sendCount == totalRequests {
 			//fmt.Println("drive: done")
 			return
 		}
@@ -449,24 +423,24 @@ func main() {
 		driver <- struct{}{}
 	}
 
-	intervalReport := time.Tick(*interval)
+	intervalReport := time.Tick(interval)
 	previousInterval := time.Now()
 
-	if *metricAddr != "" {
+	if metricAddr != "" {
 		registerMetrics()
 		go func() {
 			http.Handle("/metrics", promhttp.Handler())
-			http.ListenAndServe(*metricAddr, nil)
+			http.ListenAndServe(metricAddr, nil)
 		}()
 	}
 
 	var mainWait sync.WaitGroup
-	mainWait.Add(int(*connections))
+	mainWait.Add(int(connections))
 
-	shutdownChannels := make([][]chan struct{}, *connections)
-	for c := uint(0); c < *connections; c++ {
-		shutdowns := make([]chan struct{}, *streams)
-		for s := uint(0); s < *streams; s++ {
+	shutdownChannels := make([][]chan struct{}, connections)
+	for c := uint(0); c < connections; c++ {
+		shutdowns := make([]chan struct{}, streams)
+		for s := uint(0); s < streams; s++ {
 			shutdowns[s] = make(chan struct{})
 		}
 
@@ -474,8 +448,8 @@ func main() {
 	}
 
 	var connOpts []grpc.DialOption
-	if *tlsTrustChainFile != "" {
-		creds, err := credentials.NewClientTLSFromFile(*tlsTrustChainFile, "")
+	if tlsTrustChainFile != "" {
+		creds, err := credentials.NewClientTLSFromFile(tlsTrustChainFile, "")
 		if err != nil {
 			log.Fatalf("invalid ca cert file: %v", err)
 		}
@@ -485,7 +459,7 @@ func main() {
 	}
 
 	af := "tcp"
-	if *useUnixAddr {
+	if useUnixAddr {
 		af = "unix"
 
 		// Override the authority so it doesn't include something illegal like a path.
@@ -497,7 +471,7 @@ func main() {
 	}
 	connOpts = append(connOpts, grpc.WithDialer(dial))
 
-	for c := uint(0); c < *connections; c++ {
+	for c := uint(0); c < connections; c++ {
 		c := c
 		shutdowns := shutdownChannels[c]
 
@@ -505,16 +479,16 @@ func main() {
 			defer mainWait.Done()
 
 			var connWait sync.WaitGroup
-			connWait.Add(int(*streams))
+			connWait.Add(int(streams))
 
-			conn, err := grpc.Dial(*address, connOpts...)
+			conn, err := grpc.Dial(address, connOpts...)
 			if err != nil {
 				log.Fatalf("did not connect: %v", err)
 			}
 			defer conn.Close()
 			client := pb.NewResponderClient(conn)
 
-			for s := uint(0); s < *streams; s++ {
+			for s := uint(0); s < streams; s++ {
 				worker := workerID{connection: c, stream: s}
 				shutdown := shutdowns[s]
 
@@ -522,12 +496,12 @@ func main() {
 					defer connWait.Done()
 
 					r := rand.New(rand.NewSource(time.Now().UnixNano()))
-					if !*streaming {
-						sendNonStreamingRequests(worker, client, shutdown, *clientTimeout,
-							lengthDistribution, latencyDistribution, float32(*errorRate), r, driver, receiver)
+					if !streaming {
+						sendNonStreamingRequests(worker, client, shutdown, clientTimeout,
+							lengthDistribution, latencyDistribution, float32(errorRate), r, driver, receiver)
 					} else {
 						err := sendStreamingRequests(worker, client, shutdown,
-							lengthDistribution, latencyDistribution, *streamingRatio, r, driver, receiver)
+							lengthDistribution, latencyDistribution, streamingRatio, r, driver, receiver)
 						if err != nil {
 							log.Fatalf("could not send a request: %v", err)
 						}
@@ -544,7 +518,7 @@ func main() {
 
 		// If there is no target RPS, ensure there's enough capacity for all threads to
 		// operate:
-		if *totalTargetRps == 0 {
+		if totalTargetRps == 0 {
 			for i := uint(0); i != concurrency; i++ {
 				drive()
 			}
@@ -563,13 +537,13 @@ func main() {
 					}
 				}
 
-				if !*noIntervalReport && count > 0 {
-					t := previousInterval.Add(*interval)
-					logIntervalReport(t, interval, good, bad, bytes, min, max,
+				if !noIntervalReport && count > 0 {
+					t := previousInterval.Add(interval)
+					logIntervalReport(t, &interval, good, bad, bytes, min, max,
 						latencyHist, jitterHist)
 				}
 
-				if !*noFinalReport {
+				if !noFinalReport {
 					logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist, globalJitterHist)
 				}
 				mainWait.Done()
@@ -579,10 +553,10 @@ func main() {
 				// When a target rps is set, it may fire several times a second so that a
 				// full concurrency of work may be scheduled at each interval.
 
-				n := *totalTargetRps
+				n := totalTargetRps
 
-				if *totalRequests > 0 {
-					r := *totalRequests - sendCount
+				if totalRequests > 0 {
+					r := totalRequests - sendCount
 					if r < n {
 						n = r
 					}
@@ -633,19 +607,19 @@ func main() {
 					globalJitterHist.RecordValue(jitter)
 				}
 
-				if recvCount == *totalRequests {
+				if recvCount == totalRequests {
 					// N.B. recvCount > 0, so totalRequests >0
 					cleanup <- struct{}{}
-				} else if *totalTargetRps == 0 {
+				} else if totalTargetRps == 0 {
 					// If there's no target rps, just restore capacity immediately.
 					drive()
 				}
 
 			case t := <-intervalReport:
-				if *noIntervalReport {
+				if noIntervalReport {
 					continue
 				}
-				logIntervalReport(t, interval, good, bad, bytes, min, max,
+				logIntervalReport(t, &interval, good, bad, bytes, min, max,
 					latencyHist, jitterHist)
 				bytes, count, good, bad, max, min = 0, 0, 0, 0, 0, math.MaxInt64
 				latencyHist.Reset()
