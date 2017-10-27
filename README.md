@@ -9,7 +9,7 @@ Strest client and server implementations for gRPC.
 To run the client and server locally, first start the server.
 
 ```
-$ go run server/main.go
+$ go run main.go server
 starting gRPC server on :11111
 ```
 
@@ -17,7 +17,7 @@ Next run the client. By default, the client will send as many request as it can
 on a single connection for 10 seconds, and exit with a performance report.
 
 ```
-$ go run client/main.go --address localhost:11111
+$ go run main.go client --address localhost:11111
 2017-05-12T16:17:40-07:00  98.2KB    354/0 10s L:   0 [ 89  97 ]  102 J:   0   0
 {
   "good": 354,
@@ -44,21 +44,21 @@ Use the `-help` flag with either the client or server to see a list of flags.
 
 | Flag                  | Default   | Description |
 |-----------------------|-----------|-------------|
-| `-address`            | `localhost:11111` | hostname:port of strest-grpc service or intermediary. |
-| `-unix`               | false     | Causes the `address` to be interpreted as a Unix Domain Socket. |
-| `-clientTimeout`      | `<none>`  | Timeout for unary client request. No timeout is applied if unset. |
-| `-concurrency`        | `1`       | Number of goroutines to run, each at the specified QPS level. Measure total QPS as `qps * concurrency`. |
-| `-interval`           | `10s`     | How often to report stats to stdout. |
-| `-latencyPercentiles` | `50=10,100=100` | response latency percentile distribution in milliseconds. |
-| `-lengthPercentiles`  | `50=100,100=1000` | response body length percentile. |
-| `-errorRate`          | `0`       | The chance to return an error. |
-| `-metricAddr`         | `<none>`  | Address to use when serving the Prometheus `/metrics` endpoint. No metrics are served if unset. Format is `host:port` or `:port`. |
-| `-noFinalReport`      | `<unset>` | If set, don't print the json latency report at the end. |
-| `-noIntervalReport`   | `<unset>` | If set, only print the final report, nothing intermediate. |
-| `-streaming`          | `<unset>` | response is a gRPC stream from the strest server. |
-| `-streamingRatio`     | `1:1`     | the ratio of streaming requests/responses if streaming is enabled. |
-| `-totalRequests`      | `<none>`  | Exit after sending this many requests. |
-| `-help`               | `<unset>` | If set, print all available flags and exit. |
+| `--address`            | `localhost:11111` | hostname:port of strest-grpc service or intermediary. |
+| `--unix`               | false     | Causes the `address` to be interpreted as a Unix Domain Socket. |
+| `--clientTimeout`      | `<none>`  | Timeout for unary client request. No timeout is applied if unset. |
+| `--concurrency`        | `1`       | Number of goroutines to run, each at the specified QPS level. Measure total QPS as `qps * concurrency`. |
+| `--interval`           | `10s`     | How often to report stats to stdout. |
+| `--latencyPercentiles` | `50=10,100=100` | response latency percentile distribution in milliseconds. |
+| `--lengthPercentiles`  | `50=100,100=1000` | response body length percentile. |
+| `--errorRate`          | `0`       | The chance to return an error. |
+| `--metricAddr`         | `<none>`  | Address to use when serving the Prometheus `/metrics` endpoint. No metrics are served if unset. Format is `host:port` or `:port`. |
+| `--noFinalReport`      | `<unset>` | If set, don't print the json latency report at the end. |
+| `--noIntervalReport`   | `<unset>` | If set, only print the final report, nothing intermediate. |
+| `--streaming`          | `<unset>` | response is a gRPC stream from the strest server. |
+| `--streamingRatio`     | `1:1`     | the ratio of streaming requests/responses if streaming is enabled. |
+| `--totalRequests`      | `<none>`  | Exit after sending this many requests. |
+| `--help`               | `<unset>` | If set, print all available flags and exit. |
 
 ## Building
 
@@ -68,8 +68,7 @@ To build the client and server binaries, run:
 ./bin/release.sh
 ```
 
-That will create `strest-client-linux`, `strest-server-linux`, and `strest-max-rps` binaries in the
-root of the project.
+That will create a `strest-grpc-linux` binary in the root of the project.
 
 To build a docker image, run:
 
@@ -79,12 +78,12 @@ $ docker build -t buoyantio/strest-grpc:latest .
 
 Replace `latest` with whatever tag you are trying to build.
 
-### `strest-max-rps`
+### `strest-grpc max-rps`
 
-`strest-max-rps` will calculate the maximum RPS that a strest-server or intermediary
+`strest-grpc max-rps` will calculate the maximum RPS that a strest-server or intermediary
 can sustain. The `maxConcurrency` score lets you know what at which point adding more
 clients no longer improves overall throughput. This calculation is based on the
-Universal Scalability Law and can change dramatically based on the envinronment and
+Universal Scalability Law and can change dramatically based on the environment and
 resources available.
 
 ## Releasing

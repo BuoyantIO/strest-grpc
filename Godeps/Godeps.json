@@ -1,6 +1,6 @@
 {
 	"ImportPath": "github.com/buoyantio/strest-grpc",
-	"GoVersion": "go1.8",
+	"GoVersion": "go1.9",
 	"GodepVersion": "v79",
 	"Packages": [
 		"./..."
@@ -21,6 +21,11 @@
 		{
 			"ImportPath": "github.com/golang/protobuf/ptypes/any",
 			"Rev": "18c9bb3261723cd5401db4d0c9fbc5c3b6c70fe8"
+		},
+		{
+			"ImportPath": "github.com/inconshreveable/mousetrap",
+			"Comment": "v1.0",
+			"Rev": "76626ae9c91c4f2a10f34cad8ce83ea42c93bb75"
 		},
 		{
 			"ImportPath": "github.com/matttproud/golang_protobuf_extensions/pbutil",
@@ -61,6 +66,16 @@
 		{
 			"ImportPath": "github.com/prometheus/procfs/xfs",
 			"Rev": "d098ca18df8bc825079013daf7bacefbb1ee877e"
+		},
+		{
+			"ImportPath": "github.com/spf13/cobra",
+			"Comment": "v0.0.1",
+			"Rev": "7b2c5ac9fc04fc5efafb60700713d4fa609b777b"
+		},
+		{
+			"ImportPath": "github.com/spf13/pflag",
+			"Comment": "v1.0.0-9-g97afa5e",
+			"Rev": "97afa5e7ca8a08a383cb259e06636b5e2cc7897f"
 		},
 		{
 			"ImportPath": "golang.org/x/net/context",

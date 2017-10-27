@@ -1,16 +1,14 @@
-package main
+package maxrps
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"math"
-	"os"
-	"path"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
 	pb "github.com/buoyantio/strest-grpc/protos"
 
 	"golang.org/x/net/context"
@@ -19,32 +17,26 @@ import (
 	"google.golang.org/grpc"
 )
 
+type Config struct {
+	Address           string
+	ConcurrencyLevels string
+	TimePerLevel      time.Duration
+	Debug             bool
+}
+
 // `strest-max-rps` is designed to tell you the maximum rps that
 // either a strest-grpc server or an intermediary can provide. It does
 // this using the Universal Scalability Law.
 //
 // Thanks to @brendantracey for the go playground snippet least squared regression
 // code that I borrowed verbatim.
-func main() {
-	var (
-		address           = flag.String("address", "localhost:11111", "hostname:port of strest-grpc service or intermediary")
-		concurrencyLevels = flag.String("concurrencyLevels", "1,5,10,20,30", "levels of concurrency to test with")
-		timePerLevel      = flag.Duration("timePerLevel", 1 * time.Second, "how much time to spend testing each concurrency level")
-		debug             = flag.Bool("debug", false, "print out some extra information for debugging")
-	)
+func (cfg Config) Run() {
 
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [flags]\n", path.Base(os.Args[0]))
-		flag.PrintDefaults()
+	if cfg.TimePerLevel < time.Second {
+		log.Fatalf("cfg.TimePerLevel cannot be less than 1 second.")
 	}
 
-	flag.Parse()
-
-	if *timePerLevel < time.Second {
-		log.Fatalf("timePerLevel cannot be less than 1 second.")
-	}
-
-	levels := strings.Split(*concurrencyLevels, ",")
+	levels := strings.Split(cfg.ConcurrencyLevels, ",")
 	var denseLatency [](float64)
 
 	for _, l := range levels {
@@ -53,15 +45,15 @@ func main() {
 			log.Fatalf("unknown concurrency level: %s, %s", l, err)
 		}
 
-		throughput := runLoadTests(address, level, timePerLevel)
-		if *debug {
+		throughput := runLoadTests(&cfg.Address, level, &cfg.TimePerLevel)
+		if cfg.Debug {
 			fmt.Printf("%d %d\n", level, throughput)
 		}
 		denseLatency = append(denseLatency, float64(level))
 		denseLatency = append(denseLatency, float64(throughput))
 	}
 
-	latency := mat64.NewDense(len(denseLatency) / 2, 2, denseLatency)
+	latency := mat64.NewDense(len(denseLatency)/2, 2, denseLatency)
 	concurrency := mat64.Col(nil, 0, latency)
 	throughput := mat64.Col(nil, 1, latency)
 
@@ -114,7 +106,7 @@ func main() {
 	fmt.Println("kappa (the overhead of crosstalk): ", kappaOpt)
 	fmt.Println("lambda (unloaded performance): ", lambdaOpt)
 
-	if *debug {
+	if cfg.Debug {
 		for i, v := range throughput {
 			N := concurrency[i]
 			pred := concurrencyToThroughput(N, sigmaOpt, kappaOpt, lambdaOpt)
@@ -130,7 +122,7 @@ func main() {
 }
 
 func throughputAtConcurrency(n, kappa, lambda, sigma float64) float64 {
-    return (lambda * n) / (1 + (sigma * (n - 1)) + (kappa * n * (n - 1)));
+	return (lambda * n) / (1 + (sigma * (n - 1)) + (kappa * n * (n - 1)))
 }
 
 // These math functions were borrowed from https://play.golang.org/p/wWUH4E5LhP
@@ -160,17 +152,17 @@ func concurrencyToThroughputDeriv(concurrency, sigma, kappa, lambda float64) (dS
 
 // Converts a slice of chan int to a slice of int.
 func chansToSlice(cs []<-chan int, size int) []int {
-    s := make([]int, size)
+	s := make([]int, size)
 	for i, c := range cs {
 		for m := range c {
 			s[i] = m
-	    }
+		}
 	}
-    return s
+	return s
 }
 
 // Runs a single load test, returns how many requests were sent in a second.
-func runLoadTest(client pb.ResponderClient, wg *sync.WaitGroup, startWg *sync.WaitGroup, timePerLevel *time.Duration) <- chan int {
+func runLoadTest(client pb.ResponderClient, wg *sync.WaitGroup, startWg *sync.WaitGroup, timePerLevel *time.Duration) <-chan int {
 	out := make(chan int, 1)
 	go func() {
 		defer wg.Done()
@@ -183,7 +175,7 @@ func runLoadTest(client pb.ResponderClient, wg *sync.WaitGroup, startWg *sync.Wa
 				&pb.ResponseSpec{
 					Length:  0,
 					Latency: 0,
-			})
+				})
 
 			if err != nil {
 				// TODO: have an err channel so we can report the # of errs

@@ -1,5 +1,7 @@
 ## Upcoming: 0.1.0
 
+* **Breaking Change** `client`, `server`, and `max-rps` now subcommands of `strest-grpc` executable.
+* **Breaking Change** All CLI flags take two dashes now.
 * Add support for Unix Domain sockets.
 
 ## 0.0.3
