@@ -12,7 +12,7 @@ var clientCfg = client.Config{}
 var clientCmd = &cobra.Command{
 	Use:   "client",
 	Short: "run the strest-grpc client",
-	Args:  cobra.ArbitraryArgs,
+	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		clientCfg.Run()
 	},

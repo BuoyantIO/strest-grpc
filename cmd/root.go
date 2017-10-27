@@ -8,7 +8,7 @@ import (
 )
 
 var RootCmd = &cobra.Command{
-	Use:   "strest-grpc [client | server]",
+	Use:   "strest-grpc [client | server | max-rps]",
 	Short: "A load tester for stress testing grpc intermediaries.",
 	Long: `A load tester for stress testing grpc intermediaries.
 
