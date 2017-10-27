@@ -27,7 +27,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/transport"
 )
 
 // MeasuredResponse tracks the latency of a response and any
@@ -299,14 +302,11 @@ func sendStreamingRequests(worker workerID,
 		}
 	}()
 
-	requestRatioM, requestRatioN := parseStreamingRatio(streamingRatio)
-	numRequests := int64(0)
-	currentRequest := int64(0)
-	for {
-		select {
-		case <-shutdown:
-			return nil
-		default:
+	go func() {
+		requestRatioM, requestRatioN := parseStreamingRatio(streamingRatio)
+		numRequests := int64(0)
+		currentRequest := int64(0)
+		for {
 			if (currentRequest % requestRatioM) == 0 {
 				numRequests = requestRatioN
 			}
@@ -318,13 +318,20 @@ func sendStreamingRequests(worker workerID,
 			})
 
 			if err != nil {
-				log.Fatalf("Failed to Send ResponseSpec: %v", err)
+				// check for "rpc error: code = Internal desc = transport is closing"
+				if err.Error() != status.New(codes.Internal, transport.ErrConnClosing.Desc).Err().Error() {
+					log.Fatalf("Failed to Send ResponseSpec: %v", err)
+				}
+				return
 			}
 
 			numRequests = 0
 			currentRequest++
 		}
-	}
+	}()
+
+	<-shutdown
+	return nil
 }
 
 /// Configuration to run a client.
