@@ -5,21 +5,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TODO: this is horrible. make a struct.
-var (
-	serverAddress     string
-	serverUseUnixAddr bool
-	serverMetricAddr  string
-	tlsCertFile       string
-	tlsPrivKeyFile    string
-)
+var serverCfg = server.Config{}
 
 var serverCmd = &cobra.Command{
 	Use:   "server",
 	Short: "run the strest-grpc server",
 	Run: func(cmd *cobra.Command, args []string) {
-		server.Run(
-			&serverAddress, &serverUseUnixAddr, &serverMetricAddr, &tlsCertFile, &tlsPrivKeyFile)
+		serverCfg.Run()
 	},
 	Args: cobra.NoArgs,
 }
@@ -27,8 +19,8 @@ var serverCmd = &cobra.Command{
 func init() {
 	RootCmd.AddCommand(serverCmd)
 	flags := serverCmd.PersistentFlags()
-	flags.StringVar(&serverAddress, "address", ":11111", "address to serve on")
-	flags.BoolVarP(&serverUseUnixAddr, "unix", "u", false, "use Unix Domain Sockets instead of TCP")
-	flags.StringVar(&tlsCertFile, "tlsCertFile", "", "the path to the trust certificate")
-	flags.StringVar(&tlsPrivKeyFile, "tlsPrivKeyFile", "", "the path to the server's private key")
+	flags.StringVar(&serverCfg.Address, "address", ":11111", "address to serve on")
+	flags.BoolVarP(&serverCfg.UseUnixAddr, "unix", "u", false, "use Unix Domain Sockets instead of TCP")
+	flags.StringVar(&serverCfg.TLSCertFile, "tlsCertFile", "", "the path to the trust certificate")
+	flags.StringVar(&serverCfg.TLSPrivKeyFile, "tlsPrivKeyFile", "", "the path to the server's private key")
 }

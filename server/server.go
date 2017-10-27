@@ -140,38 +140,60 @@ func (s *server) StreamingGet(stream pb.Responder_StreamingGetServer) error {
 	}
 }
 
-func Run(address *string,
-	useUnixAddr *bool,
-	metricAddr *string,
-	tlsCertFile *string,
-	tlsPrivKeyFile *string) {
-	rand.Seed(time.Now().UnixNano())
+// Configuration for a server
+type Config struct {
+	Address        string
+	UseUnixAddr    bool
+	MetricAddr     string
+	TLSCertFile    string
+	TLSPrivKeyFile string
+}
 
-	if *metricAddr != "" {
+func (cfg *Config) serveMetrics() {
+	if cfg.MetricAddr != "" {
 		registerMetrics()
 		go func() {
 			http.Handle("/metrics", promhttp.Handler())
-			http.ListenAndServe(*metricAddr, nil)
+			http.ListenAndServe(cfg.MetricAddr, nil)
 		}()
 	}
+}
 
-	fmt.Println("starting gRPC server on", *address)
-
-	af := "tcp"
-	if *useUnixAddr {
-		af = "unix"
+func (cfg *Config) af() string {
+	if cfg.UseUnixAddr {
+		return "unix"
+	} else {
+		return "tcp"
 	}
-	lis, err := net.Listen(af, *address)
+}
+
+func (cfg *Config) tlsCreds() (credentials.TransportCredentials, error) {
+	if cfg.TLSCertFile != "" && cfg.TLSPrivKeyFile != "" {
+		return credentials.NewServerTLSFromFile(cfg.TLSCertFile, cfg.TLSPrivKeyFile)
+	}
+	return nil, nil
+}
+
+// run the server
+func (cfg Config) Run() {
+	rand.Seed(time.Now().UnixNano())
+
+	cfg.serveMetrics()
+
+	fmt.Println("starting gRPC server on", cfg.Address)
+
+	af := cfg.af()
+	lis, err := net.Listen(af, cfg.Address)
 	if err != nil {
-		log.Fatalf("listening on %s:%s: %v", af, *address, err)
+		log.Fatalf("listening on %s:%s: %v", af, cfg.Address, err)
 	}
 
 	var opts []grpc.ServerOption
-	if *tlsCertFile != "" && *tlsPrivKeyFile != "" {
-		creds, err := credentials.NewServerTLSFromFile(*tlsCertFile, *tlsPrivKeyFile)
-		if err != nil {
-			log.Fatalf("invalid ca cert file: %v", err)
-		}
+
+	creds, err := cfg.tlsCreds()
+	if err != nil {
+		log.Fatalf("invalid ca cert file: %v", err)
+	} else if creds != nil {
 		opts = append(opts, grpc.Creds(creds))
 	}
 
