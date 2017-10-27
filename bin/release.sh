@@ -9,7 +9,5 @@ for GOOS in darwin linux ; do
     mkdir -p "$dir"
 
     export GOOS
-    go build -o "$dir/strest-grpc-client" client/main.go
-    go build -o "$dir/strest-grpc-server" server/main.go
-    go build -o "$dir/strest-grpc-max-rps" max-rps/main.go
+    go build -o "$dir/strest-grpc" main.go
 done
