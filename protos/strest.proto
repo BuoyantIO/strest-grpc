@@ -22,6 +22,7 @@ message StreamingResponseSpec {
   // distributions for latency and body size
   map<int32, int64> latencyPercentiles = 2;
   map<int32, int64> lengthPercentiles = 3;
+  float errorRate = 4;
 }
 
 // The response message containing the greetings

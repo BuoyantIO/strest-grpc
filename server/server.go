@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 )
 
 type server struct{}
@@ -115,6 +116,11 @@ func (s *server) StreamingGet(stream pb.Responder_StreamingGetServer) error {
 		lastFrameSent := time.Now().UnixNano()
 		promRequests.Inc()
 		for i := int32(0); i < spec.Count; i++ {
+			if r.Float32() < spec.ErrorRate {
+				promStreamErrors.Inc()
+				return status.Errorf(codes.Unknown, "strest-grpc stream error for ErrorRate: %+v", spec.ErrorRate)
+			}
+
 			timeToSleep := latencyDistribution.Get(r.Int31() % 1000)
 			bodySize := lengthDistribution.Get(r.Int31() % 1000)
 			promBytesSent.Add(float64(bodySize))
