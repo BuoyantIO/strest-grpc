@@ -3,6 +3,7 @@
 * **Breaking Change** `client`, `server`, and `max-rps` now subcommands of `strest-grpc` executable.
 * **Breaking Change** All CLI flags take two dashes now.
 * Add support for Unix Domain sockets.
+* Support `--errorRate` for streaming requests.
 
 ## 0.0.3
 
