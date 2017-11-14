@@ -257,39 +257,13 @@ func parseStreamingRatio(streamingRatio string) (int64, int64) {
 
 func recvStream(
 	worker workerID,
-	driver <-chan struct{},
 	responses chan<- *MeasuredResponse,
 	stream pb.Responder_StreamingGetClient,
 	receiving <-chan struct{},
+	streamErr chan<- struct{},
 ) {
 	for {
 		select {
-		// TODO: should driver control sends rather than receives?
-		case <-driver:
-			start := time.Now()
-			resp, err := stream.Recv()
-			elapsed := time.Since(start)
-
-			if err == io.EOF {
-				// read done.
-				log.Println("stream.Recv() returned io.EOF")
-				return
-			}
-			var mr *MeasuredResponse
-			if err != nil {
-				mr = &MeasuredResponse{err: err}
-			} else {
-				timeBetweenFrames := time.Duration(resp.CurrentFrameSent - resp.LastFrameSent)
-				bytes := uint(len([]byte(resp.Body)))
-				mr = &MeasuredResponse{
-					worker,
-					timeBetweenFrames,
-					elapsed,
-					bytes,
-					err,
-				}
-			}
-			responses <- mr
 
 		case _, more := <-receiving:
 			if more {
@@ -298,47 +272,99 @@ func recvStream(
 			}
 
 			return
+
+		default:
+			start := time.Now()
+			resp, err := stream.Recv()
+			elapsed := time.Since(start)
+
+			if err != nil {
+				if err == io.EOF {
+					// read done.
+					log.Println("stream.Recv() returned io.EOF")
+				} else if err.Error() == status.New(codes.Internal, transport.ErrConnClosing.Desc).Err().Error() {
+					// THIS IS WHERE STUFF ACTUALLY RETURNS ON SUCCESS
+					// check for "rpc error: code = Internal desc = transport is closing"
+					log.Println("stream.Recv() returned transport is closing")
+				} else {
+					// THIS IS WHERE STUFF ACTUALLY RETURNS ON FAIL
+					log.Println("stream.Recv() ERR FAIL: " + err.Error())
+					responses <- &MeasuredResponse{err: err}
+				}
+
+				// stream.CloseSend()
+				streamErr <- struct{}{}
+				return
+			}
+
+			log.Println("RECV")
+			timeBetweenFrames := time.Duration(resp.CurrentFrameSent - resp.LastFrameSent)
+			bytes := uint(len([]byte(resp.Body)))
+			responses <- &MeasuredResponse{
+				worker,
+				timeBetweenFrames,
+				elapsed,
+				bytes,
+				err,
+			}
 		}
 	}
 }
 
 func sendStream(
+	driver <-chan struct{},
 	lengthMap map[int32]int64,
 	latencyMap map[int32]int64,
 	errorRate float32,
 	requestRatioM int64,
 	requestRatioN int64,
 	stream pb.Responder_StreamingGetClient,
-	sending chan<- struct{},
+	sending <-chan struct{},
+	streamErr chan<- struct{},
 ) {
 	numRequests := int64(0)
 	currentRequest := int64(0)
 
 	for {
-		if (currentRequest % requestRatioM) == 0 {
-			numRequests = requestRatioN
-		}
-
-		err := stream.Send(&pb.StreamingResponseSpec{
-			Count:              int32(numRequests),
-			LatencyPercentiles: latencyMap,
-			LengthPercentiles:  lengthMap,
-			ErrorRate:          errorRate,
-		})
-
-		if err == io.EOF {
-			close(sending)
-			return
-		} else if err != nil {
-			// check for "rpc error: code = Internal desc = transport is closing"
-			if err.Error() != status.New(codes.Internal, transport.ErrConnClosing.Desc).Err().Error() {
-				log.Fatalf("Failed to Send ResponseSpec: %v", err)
+		select {
+		case <-driver:
+			if (currentRequest % requestRatioM) == 0 {
+				numRequests = requestRatioN
 			}
+
+			err := stream.Send(&pb.StreamingResponseSpec{
+				Count:              int32(numRequests),
+				LatencyPercentiles: latencyMap,
+				LengthPercentiles:  lengthMap,
+				ErrorRate:          errorRate,
+			})
+
+			if err == io.EOF {
+				// THIS IS WHERE STUFF ACTUALLY RETURNS
+				log.Println("stream.Send() returned EOF")
+				streamErr <- struct{}{}
+				return
+			} else if err != nil {
+				// check for "rpc error: code = Internal desc = transport is closing"
+				if err.Error() != status.New(codes.Internal, transport.ErrConnClosing.Desc).Err().Error() {
+					log.Fatalf("Failed to Send ResponseSpec: %v", err)
+				}
+				log.Println("stream.Send() returned " + err.Error())
+				streamErr <- struct{}{}
+				return
+			}
+
+			numRequests = 0
+			currentRequest++
+
+		case _, more := <-sending:
+			if more {
+				// we should never get here
+				log.Fatalf("Invalid state: message sent on sending channel")
+			}
+
 			return
 		}
-
-		numRequests = 0
-		currentRequest++
 	}
 }
 
@@ -349,17 +375,18 @@ func sendStreamingRequests(
 	lengthDistribution distribution.Distribution,
 	latencyDistribution distribution.Distribution,
 	errorRate float32,
-	streamingRatio string,
+	requestRatioM int64,
+	requestRatioN int64,
 	r *rand.Rand,
 	driver <-chan struct{},
 	responses chan<- *MeasuredResponse,
-) error {
+) {
 
 	latencyMap := latencyDistribution.ToMap()
 	lengthMap := lengthDistribution.ToMap()
-	requestRatioM, requestRatioN := parseStreamingRatio(streamingRatio)
 
 	for {
+		log.Println("FOO1")
 		stream, err := client.StreamingGet(context.Background())
 		if err != nil {
 			log.Fatalf("%v.StreamingGet(_) = _, %v", client, err)
@@ -367,24 +394,74 @@ func sendStreamingRequests(
 		defer stream.CloseSend()
 		sending := make(chan struct{})
 		receiving := make(chan struct{})
+		streamErr := make(chan struct{}, 2)
+		log.Println("FOO2")
+		go recvStream(worker, responses, stream, receiving, streamErr)
+		go sendStream(driver, lengthMap, latencyMap, errorRate, requestRatioM, requestRatioN, stream, sending, streamErr)
 
-		go recvStream(worker, driver, responses, stream, receiving)
-		go sendStream(lengthMap, latencyMap, errorRate, requestRatioM, requestRatioN, stream, sending)
+		log.Println("FOO3")
 
 		select {
-		case _, more := <-sending:
-			if more {
-				// we should never get here
-				log.Fatalf("Invalid state: message sent on sending channel")
-			}
-
-			stream.CloseSend()
+		case <-streamErr:
+			log.Println("streamErr")
+			close(sending)
 			close(receiving)
-
+			stream.CloseSend()
+			log.Println("stream.CloseSend()")
 		case <-shutdown:
-			return nil
+			log.Println("<-shutdown")
+			stream.CloseSend()
+			close(sending)
+			close(receiving)
+			return
 		}
 	}
+}
+
+func connect(
+	mainWait *sync.WaitGroup,
+	cfg Config,
+	requestRatioM int64,
+	requestRatioN int64,
+	connOpts []grpc.DialOption,
+	c uint,
+	shutdowns []chan struct{},
+	lengthDistribution distribution.Distribution,
+	latencyDistribution distribution.Distribution,
+	driver <-chan struct{},
+	responses chan<- *MeasuredResponse,
+) {
+	defer mainWait.Done()
+
+	var connWait sync.WaitGroup
+	connWait.Add(int(cfg.Streams))
+
+	conn, err := grpc.Dial(cfg.Address, connOpts...)
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+	client := pb.NewResponderClient(conn)
+
+	for s := uint(0); s < cfg.Streams; s++ {
+		worker := workerID{connection: c, stream: s}
+		shutdown := shutdowns[s]
+
+		go func() {
+			defer connWait.Done()
+
+			r := rand.New(rand.NewSource(time.Now().UnixNano()))
+			if !cfg.Streaming {
+				sendNonStreamingRequests(worker, client, shutdown, cfg.ClientTimeout,
+					lengthDistribution, latencyDistribution, float32(cfg.ErrorRate), r, driver, responses)
+			} else {
+				sendStreamingRequests(worker, client, shutdown,
+					lengthDistribution, latencyDistribution, float32(cfg.ErrorRate), requestRatioM, requestRatioN, r, driver, responses)
+			}
+		}()
+	}
+
+	connWait.Wait()
 }
 
 /// Configuration to run a client.
@@ -481,6 +558,9 @@ func (cfg Config) Run() {
 
 	responses := make(chan *MeasuredResponse, capacity)
 
+	requestRatioM, requestRatioN := parseStreamingRatio(cfg.StreamingRatio)
+	totalResponses := cfg.TotalRequests * uint(requestRatioN) / uint(requestRatioM)
+
 	// If a target rps is specified, it will periodically notify the driving/reporting
 	// goroutine that a full concurrency of work should be driven.
 	var driveTick <-chan time.Time
@@ -491,7 +571,7 @@ func (cfg Config) Run() {
 	// Drive a single request.
 	drive := func() {
 		if cfg.TotalRequests > 0 && sendCount == cfg.TotalRequests {
-			//fmt.Println("drive: done")
+			fmt.Println("drive: done")
 			return
 		}
 
@@ -500,7 +580,7 @@ func (cfg Config) Run() {
 		}
 
 		sendCount++
-		//fmt.Printf("drive: signal %d %d/%d\n", sendCount, len(driver), cap(driver))
+		fmt.Printf("drive: signal %d %d/%d\n", sendCount, len(driver), cap(driver))
 
 		driver <- struct{}{}
 	}
@@ -557,42 +637,19 @@ func (cfg Config) Run() {
 		c := c
 		shutdowns := shutdownChannels[c]
 
-		go func() {
-			defer mainWait.Done()
-
-			var connWait sync.WaitGroup
-			connWait.Add(int(cfg.Streams))
-
-			conn, err := grpc.Dial(cfg.Address, connOpts...)
-			if err != nil {
-				log.Fatalf("did not connect: %v", err)
-			}
-			defer conn.Close()
-			client := pb.NewResponderClient(conn)
-
-			for s := uint(0); s < cfg.Streams; s++ {
-				worker := workerID{connection: c, stream: s}
-				shutdown := shutdowns[s]
-
-				go func() {
-					defer connWait.Done()
-
-					r := rand.New(rand.NewSource(time.Now().UnixNano()))
-					if !cfg.Streaming {
-						sendNonStreamingRequests(worker, client, shutdown, cfg.ClientTimeout,
-							lengthDistribution, latencyDistribution, float32(cfg.ErrorRate), r, driver, responses)
-					} else {
-						err := sendStreamingRequests(worker, client, shutdown,
-							lengthDistribution, latencyDistribution, float32(cfg.ErrorRate), cfg.StreamingRatio, r, driver, responses)
-						if err != nil {
-							log.Fatalf("could not send a request: %v", err)
-						}
-					}
-				}()
-			}
-
-			connWait.Wait()
-		}()
+		go connect(
+			&mainWait,
+			cfg,
+			requestRatioM,
+			requestRatioN,
+			connOpts,
+			c,
+			shutdowns,
+			lengthDistribution,
+			latencyDistribution,
+			driver,
+			responses,
+		)
 	}
 
 	go func() {
@@ -632,6 +689,7 @@ func (cfg Config) Run() {
 				return
 
 			case <-driveTick:
+				fmt.Printf("DRIVETICK\n")
 				// When a target rps is set, it may fire several times a second so that a
 				// full concurrency of work may be scheduled at each interval.
 
@@ -649,7 +707,7 @@ func (cfg Config) Run() {
 					n = r
 				}
 
-				//fmt.Printf("drive: %d [%d:%d]\n", n, len(driver), cap(driver))
+				fmt.Printf("drive: %d [%d:%d]\n", n, len(driver), cap(driver))
 				for i := uint(0); i != n; i++ {
 					drive()
 				}
@@ -659,7 +717,7 @@ func (cfg Config) Run() {
 				recvCount++
 				promRequests.Inc()
 
-				//fmt.Printf("recv %d from %v\n", recvCount, resp.worker)
+				fmt.Printf("recv %d from %v\n", recvCount, resp.worker)
 				if resp.err != nil {
 					bad++
 					totalBad++
@@ -689,11 +747,17 @@ func (cfg Config) Run() {
 					globalJitterHist.RecordValue(jitter)
 				}
 
-				if recvCount == cfg.TotalRequests {
+				// THIS SHOULD ACCOUNT FOR STREAMING RATIO
+				// DRIVER SHOULD STOP UNTIL STREAMING REQUEST IS RE_CONNECTECTED
+				fmt.Printf("sendCount: %d recvCount: %d totalResponses: %d\n", sendCount, recvCount, totalResponses)
+				if recvCount == totalResponses {
 					// N.B. recvCount > 0, so totalRequests >0
 					cleanup <- struct{}{}
 				} else if cfg.TotalTargetRps == 0 {
 					// If there's no target rps, just restore capacity immediately.
+
+					// TRY NOT TO USE DRIVER
+					time.Sleep(1000 * time.Millisecond)
 					drive()
 				}
 
@@ -712,5 +776,4 @@ func (cfg Config) Run() {
 	}()
 
 	mainWait.Wait()
-	os.Exit(0)
 }
