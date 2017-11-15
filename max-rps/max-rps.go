@@ -2,7 +2,6 @@ package maxrps
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"strconv"
 	"strings"
@@ -10,7 +9,7 @@ import (
 	"time"
 
 	pb "github.com/buoyantio/strest-grpc/protos"
-
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"gonum.org/v1/gonum/matrix/mat64"
 	"gonum.org/v1/gonum/optimize"
@@ -21,7 +20,6 @@ type Config struct {
 	Address           string
 	ConcurrencyLevels string
 	TimePerLevel      time.Duration
-	Debug             bool
 }
 
 // `strest-max-rps` is designed to tell you the maximum rps that
@@ -46,9 +44,7 @@ func (cfg Config) Run() {
 		}
 
 		throughput := runLoadTests(&cfg.Address, level, &cfg.TimePerLevel)
-		if cfg.Debug {
-			fmt.Printf("%d %d\n", level, throughput)
-		}
+		log.Debugf("%d %d", level, throughput)
 		denseLatency = append(denseLatency, float64(level))
 		denseLatency = append(denseLatency, float64(throughput))
 	}
@@ -106,11 +102,11 @@ func (cfg Config) Run() {
 	fmt.Println("kappa (the overhead of crosstalk): ", kappaOpt)
 	fmt.Println("lambda (unloaded performance): ", lambdaOpt)
 
-	if cfg.Debug {
+	if log.GetLevel() >= log.DebugLevel {
 		for i, v := range throughput {
 			N := concurrency[i]
 			pred := concurrencyToThroughput(N, sigmaOpt, kappaOpt, lambdaOpt)
-			fmt.Println("true", v, "pred", pred)
+			log.Debugf("true %+v pred %+v", v, pred)
 		}
 	}
 

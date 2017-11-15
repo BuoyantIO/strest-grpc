@@ -20,7 +20,7 @@ var clientCmd = &cobra.Command{
 
 func init() {
 	RootCmd.AddCommand(clientCmd)
-	flags := clientCmd.PersistentFlags()
+	flags := clientCmd.Flags()
 	flags.StringVar(&clientCfg.Address, "address", "localhost:1111", "address of strest-grpc service or intermediary")
 	flags.BoolVarP(&clientCfg.UseUnixAddr, "unix", "u", false, "use Unix Domain Sockets instead of TCP")
 	flags.DurationVar(&clientCfg.ClientTimeout, "clientTimeout", 0, "timeout for unary client requests. Default: no timeout")
@@ -39,5 +39,4 @@ func init() {
 	flags.StringVar(&clientCfg.MetricAddr, "metricAddr", "", "address to serve metrics on")
 	flags.StringVar(&clientCfg.LatencyUnit, "latencyUnit", "ms", "latency units [ms|us|ns]")
 	flags.StringVar(&clientCfg.TlsTrustChainFile, "tlsTrustChainFile", "", "the path to the certificate used to validate the remote's signature")
-
 }
