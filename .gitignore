@@ -1,6 +1,4 @@
-strest-server*
-strest-client*
-strest-max-rps*
+strest-grpc*
 release/
 
 # Compiled Object files, Static and Dynamic libs (Shared Objects)
