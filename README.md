@@ -8,7 +8,7 @@ Strest client and server implementations for gRPC.
 
 To run the client and server locally, first start the server.
 
-```
+```bash
 $ go run main.go server
 starting gRPC server on :11111
 ```
@@ -16,7 +16,7 @@ starting gRPC server on :11111
 Next run the client. By default, the client will send as many request as it can
 on a single connection for 10 seconds, and exit with a performance report.
 
-```
+```bash
 $ go run main.go client --address localhost:11111
 2017-05-12T16:17:40-07:00  98.2KB    354/0 10s L:   0 [ 89  97 ]  102 J:   0   0
 {
@@ -38,33 +38,113 @@ $ go run main.go client --address localhost:11111
 }
 ```
 
-### Flags
+### Usage
 
-Use the `-help` flag with either the client or server to see a list of flags.
+Use the `--help` flag for usage information.
 
-| Flag                  | Default   | Description |
-|-----------------------|-----------|-------------|
-| `--address`            | `localhost:11111` | hostname:port of strest-grpc service or intermediary. |
-| `--unix`               | false     | Causes the `address` to be interpreted as a Unix Domain Socket. |
-| `--clientTimeout`      | `<none>`  | Timeout for unary client request. No timeout is applied if unset. |
-| `--concurrency`        | `1`       | Number of goroutines to run, each at the specified QPS level. Measure total QPS as `qps * concurrency`. |
-| `--interval`           | `10s`     | How often to report stats to stdout. |
-| `--latencyPercentiles` | `50=10,100=100` | response latency percentile distribution in milliseconds. |
-| `--lengthPercentiles`  | `50=100,100=1000` | response body length percentile. |
-| `--errorRate`          | `0`       | The chance to return an error. |
-| `--metricAddr`         | `<none>`  | Address to use when serving the Prometheus `/metrics` endpoint. No metrics are served if unset. Format is `host:port` or `:port`. |
-| `--noFinalReport`      | `<unset>` | If set, don't print the json latency report at the end. |
-| `--noIntervalReport`   | `<unset>` | If set, only print the final report, nothing intermediate. |
-| `--streaming`          | `<unset>` | response is a gRPC stream from the strest server. |
-| `--streamingRatio`     | `1:1`     | the ratio of streaming requests/responses if streaming is enabled. |
-| `--totalRequests`      | `<none>`  | Exit after sending this many requests. |
-| `--help`               | `<unset>` | If set, print all available flags and exit. |
+#### Commands
+
+```bash
+$ go run main.go --help
+A load tester for stress testing grpc intermediaries.
+
+Find more information at https://github.com/buoyantio/strest-grpc.
+
+Usage:
+  strest-grpc [command]
+
+Available Commands:
+  client      run the strest-grpc client
+  help        Help about any command
+  max-rps     compute max RPS
+  server      run the strest-grpc server
+
+Flags:
+  -h, --help              help for strest-grpc
+  -l, --logLevel string   log level, must be one of: panic, fatal, error, warn, info, debug (default "info")
+
+Use "strest-grpc [command] --help" for more information about a command.
+```
+
+#### Client
+
+```bash
+$ go run main.go client --help
+run the strest-grpc client
+
+Usage:
+  strest-grpc client [flags]
+
+Flags:
+      --address string              address of strest-grpc service or intermediary (default "localhost:1111")
+      --clientTimeout duration      timeout for unary client requests. Default: no timeout
+      --connections uint            number of concurrent connections (default 1)
+      --errorRate float             the chance to return an error
+  -h, --help                        help for client
+      --interval duration           reporting interval (default 10s)
+      --latencyPercentiles string   response latency percentile distribution. (e.g. 50=10,100=100) (default "100=0")
+      --latencyUnit string          latency units [ms|us|ns] (default "ms")
+      --lengthPercentiles string    response body length percentile distribution. (e.g. 50=100,100=1000) (default "100=0")
+      --metricAddr string           address to serve metrics on
+      --noFinalReport               do not print a final JSON output report
+      --noIntervalReport            only print the final report, nothing intermediate
+      --streaming                   use the streaming features of strest server
+      --streamingRatio string       the ratio of streaming requests/responses (default "1:1")
+      --streams uint                number of concurrent streams per connection (default 1)
+      --tlsTrustChainFile string    the path to the certificate used to validate the remote's signature
+      --totalRequests uint          total number of requests to send. default: infinite
+      --totalTargetRps uint         target requests per second
+  -u, --unix                        use Unix Domain Sockets instead of TCP
+
+Global Flags:
+  -l, --logLevel string   log level, must be one of: panic, fatal, error, warn, info, debug (default "info")
+```
+
+#### Server
+
+```bash
+$ go run main.go server --help
+run the strest-grpc server
+
+Usage:
+  strest-grpc server [flags]
+
+Flags:
+      --address string          address to serve on (default ":11111")
+  -h, --help                    help for server
+      --metricAddr string       address to serve metrics on
+      --tlsCertFile string      the path to the trust certificate
+      --tlsPrivKeyFile string   the path to the server's private key
+  -u, --unix                    use Unix Domain Sockets instead of TCP
+
+Global Flags:
+  -l, --logLevel string   log level, must be one of: panic, fatal, error, warn, info, debug (default "info")
+```
+
+#### Max-RPS
+
+```bash
+$ go run main.go max-rps --help
+compute max RPS
+
+Usage:
+  strest-grpc max-rps [flags]
+
+Flags:
+      --address string             hostname:port of strest-grpc service or intermediary (default "localhost:11111")
+      --concurrencyLevels string   levels of concurrency to test with (default "1,5,10,20,30")
+  -h, --help                       help for max-rps
+      --timePerLevel duration      how much time to spend testing each concurrency level (default 1s)
+
+Global Flags:
+  -l, --logLevel string   log level, must be one of: panic, fatal, error, warn, info, debug (default "info")
+```
 
 ## Building
 
 To build the client and server binaries, run:
 
-```
+```bash
 ./bin/release.sh
 ```
 
@@ -72,7 +152,7 @@ That will create a `strest-grpc-linux` binary in the root of the project.
 
 To build a docker image, run:
 
-```
+```bash
 $ docker build -t buoyantio/strest-grpc:latest .
 ```
 

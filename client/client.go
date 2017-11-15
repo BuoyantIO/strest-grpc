@@ -2,10 +2,8 @@ package client
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"math/rand"
 	"net"
@@ -25,6 +23,7 @@ import (
 	"github.com/codahale/hdrhistogram"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -49,10 +48,7 @@ type workerID struct {
 }
 
 func exUsage(msg string) {
-	fmt.Fprintf(os.Stderr, "%s\n", msg)
-	fmt.Fprintf(os.Stderr, "Usage: %s [flags]\n", path.Base(os.Args[0]))
-	flag.PrintDefaults()
-	os.Exit(64)
+	log.Fatalf("%s, see usage: %s client --help", msg, path.Base(os.Args[0]))
 }
 
 // Report provides top-level good/bad numbers and a latency breakdown.
@@ -197,7 +193,7 @@ func safeNonStreamingRequest(worker workerID,
 		Latency:   latencyDistribution.Get(r.Int31() % 1000),
 		ErrorRate: errorRate}
 
-	//fmt.Printf("%v: req\n", worker)
+	log.Debugf("%v: req", worker)
 	resp, err := client.Get(ctx, &spec)
 	if err != nil {
 		responses <- &MeasuredResponse{err: err}
@@ -206,7 +202,7 @@ func safeNonStreamingRequest(worker workerID,
 
 	bytes := uint(len([]byte(resp.Body)))
 	latency := time.Since(start)
-	//fmt.Printf("%v: rsp %v\n", worker, latency)
+	log.Debugf("%v: rsp %v", worker, latency)
 	responses <- &MeasuredResponse{worker: worker, latency: latency, bytes: bytes}
 }
 
@@ -238,18 +234,18 @@ func parseStreamingRatio(streamingRatio string) (int64, int64) {
 	possibleNumbers := strings.Split(streamingRatio, ":")
 
 	if len(possibleNumbers) < 2 {
-		log.Fatalf("streamingRatio '%s' didn't contain two numbers\n", streamingRatio)
+		log.Fatalf("streamingRatio '%s' didn't contain two numbers", streamingRatio)
 	}
 
 	var m, n int64
 	var err error
 
 	if m, err = strconv.ParseInt(possibleNumbers[0], 10, 64); err != nil {
-		log.Fatalf("unable to parse left-hand side of streamingRatio '%s' due to error: '%v'\n", streamingRatio, err)
+		log.Fatalf("unable to parse left-hand side of streamingRatio '%s' due to error: '%v'", streamingRatio, err)
 	}
 
 	if n, err = strconv.ParseInt(possibleNumbers[1], 10, 64); err != nil {
-		log.Fatalf("unable to parse right-hand side of streamingRatio '%s' due to error '%v'\n", streamingRatio, err)
+		log.Fatalf("unable to parse right-hand side of streamingRatio '%s' due to error '%v'", streamingRatio, err)
 	}
 
 	return m, n
@@ -272,7 +268,7 @@ func recvStream(
 
 			if err == io.EOF {
 				// read done.
-				log.Println("stream.Recv() returned io.EOF")
+				log.Error("stream.Recv() returned io.EOF")
 				return
 			}
 			var mr *MeasuredResponse
@@ -491,7 +487,7 @@ func (cfg Config) Run() {
 	// Drive a single request.
 	drive := func() {
 		if cfg.TotalRequests > 0 && sendCount == cfg.TotalRequests {
-			//fmt.Println("drive: done")
+			log.Debug("drive: done")
 			return
 		}
 
@@ -500,7 +496,7 @@ func (cfg Config) Run() {
 		}
 
 		sendCount++
-		//fmt.Printf("drive: signal %d %d/%d\n", sendCount, len(driver), cap(driver))
+		log.Debugf("drive: signal %d %d/%d", sendCount, len(driver), cap(driver))
 
 		driver <- struct{}{}
 	}
@@ -612,7 +608,7 @@ func (cfg Config) Run() {
 				cleanup <- struct{}{}
 
 			case <-cleanup:
-				//fmt.Println("cleanup")
+				log.Debug("cleanup")
 				for _, streams := range shutdownChannels {
 					for _, shutdown := range streams {
 						shutdown <- struct{}{}
@@ -649,7 +645,7 @@ func (cfg Config) Run() {
 					n = r
 				}
 
-				//fmt.Printf("drive: %d [%d:%d]\n", n, len(driver), cap(driver))
+				log.Debugf("drive: %d [%d:%d]", n, len(driver), cap(driver))
 				for i := uint(0); i != n; i++ {
 					drive()
 				}
@@ -659,7 +655,7 @@ func (cfg Config) Run() {
 				recvCount++
 				promRequests.Inc()
 
-				//fmt.Printf("recv %d from %v\n", recvCount, resp.worker)
+				log.Debugf("recv %d from %v", recvCount, resp.worker)
 				if resp.err != nil {
 					bad++
 					totalBad++
