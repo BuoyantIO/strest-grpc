@@ -260,7 +260,7 @@ func recvStream(
 	responses chan<- *MeasuredResponse,
 	stream pb.Responder_StreamingGetClient,
 	receiving <-chan struct{},
-	streamErr chan<- struct{},
+	recvErr chan<- struct{},
 ) {
 	for {
 		select {
@@ -293,7 +293,7 @@ func recvStream(
 				}
 
 				// stream.CloseSend()
-				streamErr <- struct{}{}
+				recvErr <- struct{}{}
 				return
 			}
 
@@ -318,44 +318,73 @@ func sendStream(
 	errorRate float32,
 	requestRatioM int64,
 	requestRatioN int64,
-	stream pb.Responder_StreamingGetClient,
 	sending <-chan struct{},
-	streamErr chan<- struct{},
+	sendErr chan<- struct{},
+	worker workerID,
+	client pb.ResponderClient,
+	responses chan<- *MeasuredResponse,
 ) {
+	receiving := make(chan struct{})
+	defer close(receiving)
+	recvErr := make(chan struct{})
+
+	stream, err := client.StreamingGet(context.Background())
+	if err != nil {
+		log.Fatalf("%v.StreamingGet(_) = _, %v", client, err)
+	}
+	defer stream.CloseSend()
+
+	go recvStream(worker, responses, stream, receiving, recvErr)
+
 	numRequests := int64(0)
 	currentRequest := int64(0)
 
 	for {
 		select {
 		case <-driver:
+			log.Println("sendStream::<-driver")
 			if (currentRequest % requestRatioM) == 0 {
 				numRequests = requestRatioN
 			}
 
+			log.Println("sendStream::<-driver send PRE")
 			err := stream.Send(&pb.StreamingResponseSpec{
 				Count:              int32(numRequests),
 				LatencyPercentiles: latencyMap,
 				LengthPercentiles:  lengthMap,
 				ErrorRate:          errorRate,
 			})
+			log.Printf("sendStream::<-driver send POST returned %+v\n", err)
 
 			if err == io.EOF {
 				// THIS IS WHERE STUFF ACTUALLY RETURNS
 				log.Println("stream.Send() returned EOF")
-				streamErr <- struct{}{}
-				return
+				// sendErr <- struct{}{}
 			} else if err != nil {
 				// check for "rpc error: code = Internal desc = transport is closing"
 				if err.Error() != status.New(codes.Internal, transport.ErrConnClosing.Desc).Err().Error() {
 					log.Fatalf("Failed to Send ResponseSpec: %v", err)
 				}
 				log.Println("stream.Send() returned " + err.Error())
-				streamErr <- struct{}{}
-				return
+				// sendErr <- struct{}{}
 			}
 
 			numRequests = 0
 			currentRequest++
+
+		case <-recvErr:
+
+			// restart stream
+			stream.CloseSend()
+			stream, err := client.StreamingGet(context.Background())
+			if err != nil {
+				log.Fatalf("%v.StreamingGet(_) = _, %v", client, err)
+			}
+			defer stream.CloseSend()
+			go recvStream(worker, responses, stream, receiving, recvErr)
+
+			numRequests = int64(0)
+			currentRequest = int64(0)
 
 		case _, more := <-sending:
 			if more {
@@ -387,32 +416,24 @@ func sendStreamingRequests(
 
 	for {
 		log.Println("FOO1")
-		stream, err := client.StreamingGet(context.Background())
-		if err != nil {
-			log.Fatalf("%v.StreamingGet(_) = _, %v", client, err)
-		}
-		defer stream.CloseSend()
 		sending := make(chan struct{})
-		receiving := make(chan struct{})
-		streamErr := make(chan struct{}, 2)
+		// receiving := make(chan struct{})
+		sendErr := make(chan struct{})
 		log.Println("FOO2")
-		go recvStream(worker, responses, stream, receiving, streamErr)
-		go sendStream(driver, lengthMap, latencyMap, errorRate, requestRatioM, requestRatioN, stream, sending, streamErr)
-
+		go sendStream(driver, lengthMap, latencyMap, errorRate, requestRatioM, requestRatioN, sending, sendErr, worker, client, responses)
 		log.Println("FOO3")
 
 		select {
-		case <-streamErr:
-			log.Println("streamErr")
-			close(sending)
-			close(receiving)
-			stream.CloseSend()
+		case <-sendErr:
+			log.Println("sendErr")
+			// close(receiving)
+			// stream.CloseSend()
 			log.Println("stream.CloseSend()")
 		case <-shutdown:
 			log.Println("<-shutdown")
-			stream.CloseSend()
+			// stream.CloseSend()
 			close(sending)
-			close(receiving)
+			// close(receiving)
 			return
 		}
 	}
@@ -757,7 +778,7 @@ func (cfg Config) Run() {
 					// If there's no target rps, just restore capacity immediately.
 
 					// TRY NOT TO USE DRIVER
-					time.Sleep(1000 * time.Millisecond)
+					// time.Sleep(1000 * time.Millisecond)
 					drive()
 				}
 
