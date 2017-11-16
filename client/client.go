@@ -383,6 +383,217 @@ func sendStreamingRequests(
 	}
 }
 
+func connect(
+	mainWait *sync.WaitGroup,
+	cfg Config,
+	driver <-chan struct{},
+	responses chan<- *MeasuredResponse,
+	shutdowns []chan struct{},
+	connOpts []grpc.DialOption,
+	c uint,
+	latencyDistribution distribution.Distribution,
+	lengthDistribution distribution.Distribution,
+) {
+	defer mainWait.Done()
+
+	var connWait sync.WaitGroup
+	connWait.Add(int(cfg.Streams))
+
+	conn, err := grpc.Dial(cfg.Address, connOpts...)
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+	client := pb.NewResponderClient(conn)
+
+	for s := uint(0); s < cfg.Streams; s++ {
+		worker := workerID{connection: c, stream: s}
+		shutdown := shutdowns[s]
+
+		go func() {
+			defer connWait.Done()
+
+			r := rand.New(rand.NewSource(time.Now().UnixNano()))
+			if !cfg.Streaming {
+				sendNonStreamingRequests(worker, client, shutdown, cfg.ClientTimeout,
+					lengthDistribution, latencyDistribution, float32(cfg.ErrorRate), r, driver, responses)
+			} else {
+				err := sendStreamingRequests(worker, client, shutdown,
+					lengthDistribution, latencyDistribution, float32(cfg.ErrorRate), cfg.StreamingRatio, r, driver, responses)
+				if err != nil {
+					log.Fatalf("could not send a request: %v", err)
+				}
+			}
+		}()
+	}
+
+	connWait.Wait()
+}
+
+func loop(
+	mainWait *sync.WaitGroup,
+	cfg Config,
+	driver chan<- struct{},
+	responses <-chan *MeasuredResponse,
+	shutdownChannels [][]chan struct{},
+	latencyDivisor int64,
+) {
+	defer mainWait.Done()
+
+	var bytes, totalBytes, count, sendCount, recvCount, good, totalGood, bad, totalBad, max, min uint
+	min = math.MaxInt64
+
+	concurrency := cfg.Connections * cfg.Streams
+
+	intervalReport := time.Tick(cfg.Interval)
+
+	latencyHist := hdrhistogram.New(0, DayInMillis, 3)
+	globalLatencyHist := hdrhistogram.New(0, DayInMillis, 3)
+	jitterHist := hdrhistogram.New(0, DayInMillis, 3)
+	globalJitterHist := hdrhistogram.New(0, DayInMillis, 3)
+
+	cleanup := make(chan struct{}, 2)
+	interrupt := make(chan os.Signal, 2)
+	signal.Notify(interrupt, syscall.SIGINT)
+
+	// If a target rps is specified, it will periodically notify the driving/reporting
+	// goroutine that a full concurrency of work should be driven.
+	var driveTick <-chan time.Time
+	if cfg.TotalTargetRps > 0 {
+		driveTick = time.Tick(time.Second)
+	}
+
+	// Drive a single request.
+	drive := func() {
+		if cfg.TotalRequests > 0 && sendCount == cfg.TotalRequests {
+			log.Debug("drive: done")
+			return
+		}
+
+		if len(driver) == cap(driver) {
+			return
+		}
+
+		sendCount++
+		log.Debugf("drive: signal %d %d/%d", sendCount, len(driver), cap(driver))
+
+		driver <- struct{}{}
+	}
+
+	// If there is no target RPS, ensure there's enough capacity for all threads to
+	// operate:
+	if cfg.TotalTargetRps == 0 {
+		for i := uint(0); i != concurrency; i++ {
+			drive()
+		}
+	}
+
+	previousinterval := time.Now()
+
+	for {
+		select {
+		case <-interrupt:
+			cleanup <- struct{}{}
+
+		case <-cleanup:
+			log.Debug("cleanup")
+			for _, streams := range shutdownChannels {
+				for _, shutdown := range streams {
+					shutdown <- struct{}{}
+				}
+			}
+
+			if !cfg.NoIntervalReport && count > 0 {
+				t := previousinterval.Add(cfg.Interval)
+				logIntervalReport(t, &cfg.Interval, good, bad, bytes, min, max,
+					latencyHist, jitterHist)
+			}
+
+			if !cfg.NoFinalReport {
+				logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist, globalJitterHist)
+			}
+			return
+
+		case <-driveTick:
+			// When a target rps is set, it may fire several times a second so that a
+			// full concurrency of work may be scheduled at each interval.
+
+			n := cfg.TotalTargetRps
+
+			if cfg.TotalRequests > 0 {
+				r := cfg.TotalRequests - sendCount
+				if r < n {
+					n = r
+				}
+			}
+
+			r := uint(cap(driver) - len(driver))
+			if r < n {
+				n = r
+			}
+
+			log.Debugf("drive: %d [%d:%d]", n, len(driver), cap(driver))
+			for i := uint(0); i != n; i++ {
+				drive()
+			}
+
+		case resp := <-responses:
+			count++
+			recvCount++
+			promRequests.Inc()
+
+			log.Debugf("recv %d from %v", recvCount, resp.worker)
+			if resp.err != nil {
+				bad++
+				totalBad++
+			} else {
+				good++
+				totalGood++
+				promSuccesses.Inc()
+
+				bytes += resp.bytes
+				totalBytes += resp.bytes
+
+				latency := resp.latency.Nanoseconds() / latencyDivisor
+				if latency < int64(min) {
+					min = uint(latency)
+				}
+				if latency > int64(max) {
+					max = uint(latency)
+				}
+				latencyHist.RecordValue(latency)
+				globalLatencyHist.RecordValue(latency)
+				promLatencyHistogram.Observe(float64(latency))
+
+				jitter := resp.timeBetweenFrames.Nanoseconds() / latencyDivisor
+				promJitterHistogram.Observe(float64(jitter))
+
+				jitterHist.RecordValue(jitter)
+				globalJitterHist.RecordValue(jitter)
+			}
+
+			if recvCount == cfg.TotalRequests {
+				// N.B. recvCount > 0, so totalRequests >0
+				cleanup <- struct{}{}
+			} else if cfg.TotalTargetRps == 0 {
+				// If there's no target rps, just restore capacity immediately.
+				drive()
+			}
+
+		case t := <-intervalReport:
+			if cfg.NoIntervalReport {
+				continue
+			}
+			logIntervalReport(t, &cfg.Interval, good, bad, bytes, min, max,
+				latencyHist, jitterHist)
+			bytes, count, good, bad, max, min = 0, 0, 0, 0, 0, math.MaxInt64
+			latencyHist.Reset()
+			jitterHist.Reset()
+			previousinterval = t
+		}
+	}
+}
+
 /// Configuration to run a client.
 type Config struct {
 	Address            string
@@ -451,21 +662,8 @@ func (cfg Config) Run() {
 		log.Fatalf("unable to create length distribution: %v", err)
 	}
 
-	cleanup := make(chan struct{}, 2)
-	interrupt := make(chan os.Signal, 2)
-	signal.Notify(interrupt, syscall.SIGINT)
-
-	var bytes, totalBytes, count, sendCount, recvCount, good, totalGood, bad, totalBad, max, min uint
-	min = math.MaxInt64
-	latencyHist := hdrhistogram.New(0, DayInMillis, 3)
-	globalLatencyHist := hdrhistogram.New(0, DayInMillis, 3)
-	jitterHist := hdrhistogram.New(0, DayInMillis, 3)
-	globalJitterHist := hdrhistogram.New(0, DayInMillis, 3)
-
-	concurrency := cfg.Connections * cfg.Streams
-
 	// By default, allow enough capacity for each worker.
-	capacity := concurrency
+	capacity := cfg.Connections * cfg.Streams
 
 	if cfg.TotalTargetRps > 0 {
 		// Allow several seconds worth of additional capacity in case things back up.
@@ -477,33 +675,6 @@ func (cfg Config) Run() {
 
 	responses := make(chan *MeasuredResponse, capacity)
 
-	// If a target rps is specified, it will periodically notify the driving/reporting
-	// goroutine that a full concurrency of work should be driven.
-	var driveTick <-chan time.Time
-	if cfg.TotalTargetRps > 0 {
-		driveTick = time.Tick(time.Second)
-	}
-
-	// Drive a single request.
-	drive := func() {
-		if cfg.TotalRequests > 0 && sendCount == cfg.TotalRequests {
-			log.Debug("drive: done")
-			return
-		}
-
-		if len(driver) == cap(driver) {
-			return
-		}
-
-		sendCount++
-		log.Debugf("drive: signal %d %d/%d", sendCount, len(driver), cap(driver))
-
-		driver <- struct{}{}
-	}
-
-	intervalReport := time.Tick(cfg.Interval)
-	previousinterval := time.Now()
-
 	if cfg.MetricAddr != "" {
 		registerMetrics()
 		go func() {
@@ -511,9 +682,6 @@ func (cfg Config) Run() {
 			http.ListenAndServe(cfg.MetricAddr, nil)
 		}()
 	}
-
-	var mainWait sync.WaitGroup
-	mainWait.Add(int(cfg.Connections))
 
 	shutdownChannels := make([][]chan struct{}, cfg.Connections)
 	for c := uint(0); c < cfg.Connections; c++ {
@@ -549,163 +717,37 @@ func (cfg Config) Run() {
 	}
 	connOpts = append(connOpts, grpc.WithDialer(dial))
 
+	var mainWait sync.WaitGroup
+
 	for c := uint(0); c < cfg.Connections; c++ {
 		c := c
 		shutdowns := shutdownChannels[c]
 
-		go func() {
-			defer mainWait.Done()
-
-			var connWait sync.WaitGroup
-			connWait.Add(int(cfg.Streams))
-
-			conn, err := grpc.Dial(cfg.Address, connOpts...)
-			if err != nil {
-				log.Fatalf("did not connect: %v", err)
-			}
-			defer conn.Close()
-			client := pb.NewResponderClient(conn)
-
-			for s := uint(0); s < cfg.Streams; s++ {
-				worker := workerID{connection: c, stream: s}
-				shutdown := shutdowns[s]
-
-				go func() {
-					defer connWait.Done()
-
-					r := rand.New(rand.NewSource(time.Now().UnixNano()))
-					if !cfg.Streaming {
-						sendNonStreamingRequests(worker, client, shutdown, cfg.ClientTimeout,
-							lengthDistribution, latencyDistribution, float32(cfg.ErrorRate), r, driver, responses)
-					} else {
-						err := sendStreamingRequests(worker, client, shutdown,
-							lengthDistribution, latencyDistribution, float32(cfg.ErrorRate), cfg.StreamingRatio, r, driver, responses)
-						if err != nil {
-							log.Fatalf("could not send a request: %v", err)
-						}
-					}
-				}()
-			}
-
-			connWait.Wait()
-		}()
+		// initiate requests and keep them alive
+		mainWait.Add(1)
+		go connect(
+			&mainWait,
+			cfg,
+			driver,
+			responses,
+			shutdowns,
+			connOpts,
+			c,
+			latencyDistribution,
+			lengthDistribution,
+		)
 	}
 
-	go func() {
-		mainWait.Add(1)
-
-		// If there is no target RPS, ensure there's enough capacity for all threads to
-		// operate:
-		if cfg.TotalTargetRps == 0 {
-			for i := uint(0); i != concurrency; i++ {
-				drive()
-			}
-		}
-
-		for {
-			select {
-			case <-interrupt:
-				cleanup <- struct{}{}
-
-			case <-cleanup:
-				log.Debug("cleanup")
-				for _, streams := range shutdownChannels {
-					for _, shutdown := range streams {
-						shutdown <- struct{}{}
-					}
-				}
-
-				if !cfg.NoIntervalReport && count > 0 {
-					t := previousinterval.Add(cfg.Interval)
-					logIntervalReport(t, &cfg.Interval, good, bad, bytes, min, max,
-						latencyHist, jitterHist)
-				}
-
-				if !cfg.NoFinalReport {
-					logFinalReport(totalGood, totalBad, totalBytes, globalLatencyHist, globalJitterHist)
-				}
-				mainWait.Done()
-				return
-
-			case <-driveTick:
-				// When a target rps is set, it may fire several times a second so that a
-				// full concurrency of work may be scheduled at each interval.
-
-				n := cfg.TotalTargetRps
-
-				if cfg.TotalRequests > 0 {
-					r := cfg.TotalRequests - sendCount
-					if r < n {
-						n = r
-					}
-				}
-
-				r := uint(cap(driver) - len(driver))
-				if r < n {
-					n = r
-				}
-
-				log.Debugf("drive: %d [%d:%d]", n, len(driver), cap(driver))
-				for i := uint(0); i != n; i++ {
-					drive()
-				}
-
-			case resp := <-responses:
-				count++
-				recvCount++
-				promRequests.Inc()
-
-				log.Debugf("recv %d from %v", recvCount, resp.worker)
-				if resp.err != nil {
-					bad++
-					totalBad++
-				} else {
-					good++
-					totalGood++
-					promSuccesses.Inc()
-
-					bytes += resp.bytes
-					totalBytes += resp.bytes
-
-					latency := resp.latency.Nanoseconds() / latencyDivisor
-					if latency < int64(min) {
-						min = uint(latency)
-					}
-					if latency > int64(max) {
-						max = uint(latency)
-					}
-					latencyHist.RecordValue(latency)
-					globalLatencyHist.RecordValue(latency)
-					promLatencyHistogram.Observe(float64(latency))
-
-					jitter := resp.timeBetweenFrames.Nanoseconds() / latencyDivisor
-					promJitterHistogram.Observe(float64(jitter))
-
-					jitterHist.RecordValue(jitter)
-					globalJitterHist.RecordValue(jitter)
-				}
-
-				if recvCount == cfg.TotalRequests {
-					// N.B. recvCount > 0, so totalRequests >0
-					cleanup <- struct{}{}
-				} else if cfg.TotalTargetRps == 0 {
-					// If there's no target rps, just restore capacity immediately.
-					drive()
-				}
-
-			case t := <-intervalReport:
-				if cfg.NoIntervalReport {
-					continue
-				}
-				logIntervalReport(t, &cfg.Interval, good, bad, bytes, min, max,
-					latencyHist, jitterHist)
-				bytes, count, good, bad, max, min = 0, 0, 0, 0, 0, math.MaxInt64
-				latencyHist.Reset()
-				jitterHist.Reset()
-				previousinterval = t
-			}
-		}
-	}()
+	// main event loop, parses responses
+	mainWait.Add(1)
+	go loop(
+		&mainWait,
+		cfg,
+		driver,
+		responses,
+		shutdownChannels,
+		latencyDivisor,
+	)
 
 	mainWait.Wait()
 	os.Exit(0)
