@@ -1,4 +1,4 @@
-FROM golang:1.8.0-alpine
+FROM golang:1.9.2-alpine
 
 WORKDIR /go/src/strest-grpc
 
