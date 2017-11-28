@@ -1,5 +1,12 @@
 ## In the next release...
 
+## 0.0.5
+
+* Add `--logLevel` flag, uses logrus.
+* Update all Go dependencies, including grpc-go 1.2 -> 1.7.3.
+* Update Docker build to use `golang:1.9.2-alpine` as a base.
+* [client] Code cleanup.
+
 ## 0.0.4
 
 * **Breaking Change** `client`, `server`, and `max-rps` now subcommands of `strest-grpc` executable.
