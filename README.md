@@ -142,13 +142,13 @@ Global Flags:
 
 ## Building
 
-To build the client and server binaries, run:
+To build the strest-grpc binaries and archives, run:
 
 ```bash
-./bin/release.sh
+./bin/release.sh [VERSION TAG]
 ```
 
-That will create a `strest-grpc-linux` binary in the root of the project.
+That will create `strest-grpc` binaries and archives in `./release`.
 
 To build a docker image, run:
 
@@ -172,7 +172,7 @@ To release:
 
 * Update and submit a PR with a changelog for the release in [CHANGES.md](CHANGES.md).
 * Merge the changelog PR.
-* Build the client and server binaries as described in the [Building](#building) section above.
+* Build the strest-grpc archives as described in the [Building](#building) section above.
 * Use Github to [create a new release](https://github.com/BuoyantIO/strest-grpc/releases/new).
-* Add the binaries that you built as attachments to the release.
+* Add the archives that you built as attachments to the release.
 * The docker image is built automatically once the release is created.
