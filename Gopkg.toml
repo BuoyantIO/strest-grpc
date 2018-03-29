@@ -47,7 +47,7 @@
 
 [[constraint]]
   name = "google.golang.org/grpc"
-  version = "1.7.3"
+  version = "1.10.1"
 
 [[constraint]]
   branch = "v1"
