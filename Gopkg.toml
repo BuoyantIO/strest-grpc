@@ -47,8 +47,12 @@
 
 [[constraint]]
   name = "google.golang.org/grpc"
-  version = "1.7.3"
+  version = "1.10.1"
 
 [[constraint]]
   branch = "v1"
   name = "gopkg.in/check.v1"
+
+[prune]
+  unused-packages = true
+  go-tests = true
