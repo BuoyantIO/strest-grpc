@@ -21,7 +21,7 @@ var clientCmd = &cobra.Command{
 func init() {
 	RootCmd.AddCommand(clientCmd)
 	flags := clientCmd.Flags()
-	flags.StringVar(&clientCfg.Address, "address", "localhost:1111", "address of strest-grpc service or intermediary")
+	flags.StringVar(&clientCfg.Address, "address", "localhost:11111", "address of strest-grpc service or intermediary")
 	flags.BoolVarP(&clientCfg.UseUnixAddr, "unix", "u", false, "use Unix Domain Sockets instead of TCP")
 	flags.DurationVar(&clientCfg.ClientTimeout, "clientTimeout", 0, "timeout for unary client requests. Default: no timeout")
 	flags.UintVar(&clientCfg.Connections, "connections", 1, "number of concurrent connections")

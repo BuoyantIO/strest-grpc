@@ -76,7 +76,7 @@ Usage:
   strest-grpc client [flags]
 
 Flags:
-      --address string              address of strest-grpc service or intermediary (default "localhost:1111")
+      --address string              address of strest-grpc service or intermediary (default "localhost:11111")
       --clientTimeout duration      timeout for unary client requests. Default: no timeout
       --connections uint            number of concurrent connections (default 1)
       --errorRate float             the chance to return an error
