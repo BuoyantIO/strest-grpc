@@ -52,3 +52,7 @@
 [[constraint]]
   branch = "v1"
   name = "gopkg.in/check.v1"
+
+[prune]
+  unused-packages = true
+  go-tests = true
