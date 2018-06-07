@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/buoyantio/strest-grpc/client/distribution"
+	"github.com/buoyantio/strest-grpc/distribution"
 	pb "github.com/buoyantio/strest-grpc/protos"
 	"github.com/buoyantio/strest-grpc/server/random_string"
 	"github.com/prometheus/client_golang/prometheus"
@@ -146,13 +146,14 @@ func (s *server) StreamingGet(stream pb.Responder_StreamingGetServer) error {
 	}
 }
 
-// Configuration for a server
+// Config holds the commandline configuration for the server.
 type Config struct {
-	Address        string
-	UseUnixAddr    bool
-	MetricAddr     string
-	TLSCertFile    string
-	TLSPrivKeyFile string
+	Address            string
+	UseUnixAddr        bool
+	MetricAddr         string
+	LatencyPercentiles string
+	TLSCertFile        string
+	TLSPrivKeyFile     string
 }
 
 func (cfg *Config) serveMetrics() {
@@ -168,9 +169,9 @@ func (cfg *Config) serveMetrics() {
 func (cfg *Config) af() string {
 	if cfg.UseUnixAddr {
 		return "unix"
-	} else {
-		return "tcp"
 	}
+
+	return "tcp"
 }
 
 func (cfg *Config) tlsCreds() (credentials.TransportCredentials, error) {
@@ -180,7 +181,7 @@ func (cfg *Config) tlsCreds() (credentials.TransportCredentials, error) {
 	return nil, nil
 }
 
-// run the server
+// Run processes commandline configuration and runs the server.
 func (cfg Config) Run() {
 	rand.Seed(time.Now().UnixNano())
 

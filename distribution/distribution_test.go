@@ -3,7 +3,7 @@ package distribution_test
 import (
 	"testing"
 
-	"github.com/buoyantio/strest-grpc/client/distribution"
+	"github.com/buoyantio/strest-grpc/distribution"
 	. "gopkg.in/check.v1"
 )
 
