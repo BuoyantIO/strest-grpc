@@ -4,5 +4,5 @@ ADD . /go/src/github.com/buoyantio/strest-grpc
 RUN CGO_ENABLED=0 go build -installsuffix cgo -o /go/bin/strest-grpc /go/src/github.com/buoyantio/strest-grpc/main.go
 
 FROM scratch
-COPY --from=golang /go/bin /go/bin
+COPY --from=build /go/bin /go/bin
 ENTRYPOINT ["/go/bin/strest-grpc"]
