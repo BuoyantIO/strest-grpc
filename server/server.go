@@ -9,7 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/buoyantio/strest-grpc/client/distribution"
+	"github.com/buoyantio/strest-grpc/distribution"
+	"github.com/buoyantio/strest-grpc/percentiles"
 	pb "github.com/buoyantio/strest-grpc/protos"
 	"github.com/buoyantio/strest-grpc/server/random_string"
 	"github.com/prometheus/client_golang/prometheus"
@@ -22,7 +23,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type server struct{}
+type server struct {
+	latencyDistribution distribution.Distribution
+}
 
 var (
 	promRequests = prometheus.NewCounter(prometheus.CounterOpts{
@@ -57,8 +60,10 @@ func registerMetrics() {
 func (s *server) Get(ctx context.Context, in *pb.ResponseSpec) (*pb.ResponseReply, error) {
 	var src = rand.NewSource(time.Now().UnixNano())
 	r := rand.New(src)
-	if in.Latency > 0 {
-		time.Sleep(time.Duration(in.Latency) * time.Millisecond)
+	latency := s.latencyDistribution.Get(r.Int31() % 1000)
+	latency = latency + in.Latency
+	if latency > 0 {
+		time.Sleep(time.Duration(latency) * time.Millisecond)
 	}
 	promRequests.Inc()
 	promResponses.Inc()
@@ -146,13 +151,14 @@ func (s *server) StreamingGet(stream pb.Responder_StreamingGetServer) error {
 	}
 }
 
-// Configuration for a server
+// Config holds the commandline configuration for the server.
 type Config struct {
-	Address        string
-	UseUnixAddr    bool
-	MetricAddr     string
-	TLSCertFile    string
-	TLSPrivKeyFile string
+	Address            string
+	UseUnixAddr        bool
+	MetricAddr         string
+	LatencyPercentiles string
+	TLSCertFile        string
+	TLSPrivKeyFile     string
 }
 
 func (cfg *Config) serveMetrics() {
@@ -168,9 +174,9 @@ func (cfg *Config) serveMetrics() {
 func (cfg *Config) af() string {
 	if cfg.UseUnixAddr {
 		return "unix"
-	} else {
-		return "tcp"
 	}
+
+	return "tcp"
 }
 
 func (cfg *Config) tlsCreds() (credentials.TransportCredentials, error) {
@@ -180,9 +186,18 @@ func (cfg *Config) tlsCreds() (credentials.TransportCredentials, error) {
 	return nil, nil
 }
 
-// run the server
+// Run processes commandline configuration and runs the server.
 func (cfg Config) Run() {
 	rand.Seed(time.Now().UnixNano())
+
+	latencyPercentiles, err := percentiles.ParsePercentiles(cfg.LatencyPercentiles)
+	if err != nil {
+		log.Fatalf("latencyPercentiles was not valid: %v", err)
+	}
+	latencyDistribution, err := distribution.FromMap(latencyPercentiles)
+	if err != nil {
+		log.Fatalf("unable to create latency distribution: %v", err)
+	}
 
 	cfg.serveMetrics()
 
@@ -205,6 +220,6 @@ func (cfg Config) Run() {
 
 	s := grpc.NewServer(opts...)
 
-	pb.RegisterResponderServer(s, new(server))
+	pb.RegisterResponderServer(s, &server{latencyDistribution})
 	s.Serve(lis)
 }

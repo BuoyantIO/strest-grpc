@@ -8,16 +8,16 @@ Strest client and server implementations for gRPC.
 
 To run the client and server locally, first start the server.
 
-```bash
-$ go run main.go server
+```
+$ strest-grpc server
 starting gRPC server on :11111
 ```
 
 Next run the client. By default, the client will send as many request as it can
 on a single connection for 10 seconds, and exit with a performance report.
 
-```bash
-$ go run main.go client --address localhost:11111
+```
+$ strest-grpc client --address localhost:11111
 2017-05-12T16:17:40-07:00  98.2KB    354/0 10s L:   0 [ 89  97 ]  102 J:   0   0
 {
   "good": 354,
@@ -40,12 +40,10 @@ $ go run main.go client --address localhost:11111
 
 ### Usage
 
-Use the `--help` flag for usage information.
-
 #### Commands
 
-```bash
-$ go run main.go --help
+```
+$ strest-grpc --help
 A load tester for stress testing grpc intermediaries.
 
 Find more information at https://github.com/buoyantio/strest-grpc.
@@ -68,8 +66,8 @@ Use "strest-grpc [command] --help" for more information about a command.
 
 #### Client
 
-```bash
-$ go run main.go client --help
+```
+$ strest-grpc client --help
 run the strest-grpc client
 
 Usage:
@@ -102,20 +100,21 @@ Global Flags:
 
 #### Server
 
-```bash
-$ go run main.go server --help
+```
+$ strest-grpc server --help
 run the strest-grpc server
 
 Usage:
   strest-grpc server [flags]
 
 Flags:
-      --address string          address to serve on (default ":11111")
-  -h, --help                    help for server
-      --metricAddr string       address to serve metrics on
-      --tlsCertFile string      the path to the trust certificate
-      --tlsPrivKeyFile string   the path to the server's private key
-  -u, --unix                    use Unix Domain Sockets instead of TCP
+      --address string              address to serve on (default ":11111")
+  -h, --help                        help for server
+      --latencyPercentiles string   response latency percentile distribution added to client latencies. (e.g. 50=10,100=100) (default "100=0")
+      --metricAddr string           address to serve metrics on
+      --tlsCertFile string          the path to the trust certificate
+      --tlsPrivKeyFile string       the path to the server's private key
+  -u, --unix                        use Unix Domain Sockets instead of TCP
 
 Global Flags:
   -l, --logLevel string   log level, must be one of: panic, fatal, error, warn, info, debug (default "info")
@@ -123,8 +122,8 @@ Global Flags:
 
 #### Max-RPS
 
-```bash
-$ go run main.go max-rps --help
+```
+$ strest-grpc max-rps --help
 compute max RPS
 
 Usage:
@@ -144,7 +143,7 @@ Global Flags:
 
 To build the strest-grpc binaries and archives, run:
 
-```bash
+```
 ./bin/release.sh [VERSION TAG]
 ```
 
@@ -152,7 +151,7 @@ That will create `strest-grpc` binaries and archives in `./release`.
 
 To build a docker image, run:
 
-```bash
+```
 $ docker build -t buoyantio/strest-grpc:latest .
 ```
 

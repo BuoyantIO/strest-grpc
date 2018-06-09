@@ -1,9 +1,10 @@
 package percentiles_test
 
 import (
-	"github.com/buoyantio/strest-grpc/client/percentiles"
-	. "gopkg.in/check.v1"
 	"testing"
+
+	"github.com/buoyantio/strest-grpc/percentiles"
+	. "gopkg.in/check.v1"
 )
 
 // Hook up gocheck into the "go test" runner.

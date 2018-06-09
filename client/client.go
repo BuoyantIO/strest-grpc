@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/buoyantio/strest-grpc/client/distribution"
-	"github.com/buoyantio/strest-grpc/client/percentiles"
+	"github.com/buoyantio/strest-grpc/distribution"
+	"github.com/buoyantio/strest-grpc/percentiles"
 	pb "github.com/buoyantio/strest-grpc/protos"
 	"github.com/codahale/hdrhistogram"
 	"github.com/prometheus/client_golang/prometheus"
