@@ -62,14 +62,13 @@ type Report struct {
 
 // Quantiles contains common latency quantiles (p50, p95, p999)
 type Quantiles struct {
-	Quantile50  int64 `json:"50"`
-	Quantile95  int64 `json:"95"`
-	Quantile99  int64 `json:"99"`
-	Quantile999 int64 `json:"999"`
+	Quantile50  int64 `json:"p50"`
+	Quantile75  int64 `json:"p75"`
+	Quantile90  int64 `json:"p90"`
+	Quantile95  int64 `json:"p95"`
+	Quantile99  int64 `json:"p99"`
+	Quantile999 int64 `json:"p999"`
 }
-
-// DayInMillis represents the number of milliseconds in a 24-hour day.
-const DayInMillis int64 = 24 * 60 * 60 * 1000000
 
 var (
 	sizeSuffixes = []string{"B", "KB", "MB", "GB"}
@@ -84,26 +83,62 @@ var (
 		Help: "Number of successful requests",
 	})
 
-	promLatencyHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+	promLatencyMSHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Name: "latency_ms",
 		Help: "gRPC latency distributions in milliseconds.",
 		// 50 exponential buckets ranging from 0.5 ms to 3 minutes
 		// TODO: make this tunable
 		Buckets: prometheus.ExponentialBuckets(0.5, 1.3, 50),
 	})
-	promJitterHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+	promJitterMSHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Name: "jitter_ms",
 		Help: "gRPC jitter distributions in milliseconds.",
 		// 50 exponential buckets ranging from 0.5 ms to 3 minutes
 		// TODO: make this tunable
 		Buckets: prometheus.ExponentialBuckets(0.5, 1.3, 50),
 	})
+
+	promLatencyUSHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: "latency_us",
+		Help: "gRPC latency distributions in microseconds.",
+		// 50 exponential buckets ranging from 1 us to 2.4 seconds
+		// TODO: make this tunable
+		Buckets: prometheus.ExponentialBuckets(1, 1.35, 50),
+	})
+	promJitterUSHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: "jitter_us",
+		Help: "gRPC jitter distributions in microseconds.",
+		// 50 exponential buckets ranging from 1 us to 2.4 seconds
+		// TODO: make this tunable
+		Buckets: prometheus.ExponentialBuckets(1, 1.35, 50),
+	})
+
+	promLatencyNSHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: "latency_ns",
+		Help: "gRPC latency distributions in nanoseconds.",
+		// 50 exponential buckets ranging from 1 ns to 0.4 seconds
+		// TODO: make this tunable
+		Buckets: prometheus.ExponentialBuckets(1, 1.5, 50),
+	})
+	promJitterNSHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: "jitter_ns",
+		Help: "gRPC jitter distributions in nanoseconds.",
+		// 50 exponential buckets ranging from 1 ns to 0.4 seconds
+		// TODO: make this tunable
+		Buckets: prometheus.ExponentialBuckets(1, 1.5, 50),
+	})
 )
 
 func registerMetrics() {
 	prometheus.MustRegister(promRequests)
 	prometheus.MustRegister(promSuccesses)
-	prometheus.MustRegister(promLatencyHistogram)
+	prometheus.MustRegister(promLatencyMSHistogram)
+	prometheus.MustRegister(promJitterMSHistogram)
+	prometheus.MustRegister(promLatencyUSHistogram)
+	prometheus.MustRegister(promJitterUSHistogram)
+	prometheus.MustRegister(promLatencyNSHistogram)
+	prometheus.MustRegister(promJitterNSHistogram)
+
 }
 
 func formatBytes(bytes uint) string {
@@ -132,7 +167,7 @@ func logIntervalReport(
 		good,
 		bad,
 		interval,
-		min/1000000,
+		min,
 		latencyHist.ValueAtQuantile(95),
 		latencyHist.ValueAtQuantile(99),
 		max,
@@ -144,6 +179,8 @@ func logIntervalReport(
 func logFinalReport(good, bad, bytes uint, latencies *hdrhistogram.Histogram, jitters *hdrhistogram.Histogram) {
 	latency := Quantiles{
 		Quantile50:  latencies.ValueAtQuantile(50),
+		Quantile75:  latencies.ValueAtQuantile(75),
+		Quantile90:  latencies.ValueAtQuantile(90),
 		Quantile95:  latencies.ValueAtQuantile(95),
 		Quantile99:  latencies.ValueAtQuantile(99),
 		Quantile999: latencies.ValueAtQuantile(999),
@@ -151,6 +188,8 @@ func logFinalReport(good, bad, bytes uint, latencies *hdrhistogram.Histogram, ji
 
 	jitter := Quantiles{
 		Quantile50:  jitters.ValueAtQuantile(50),
+		Quantile75:  jitters.ValueAtQuantile(75),
+		Quantile90:  jitters.ValueAtQuantile(90),
 		Quantile95:  jitters.ValueAtQuantile(95),
 		Quantile99:  jitters.ValueAtQuantile(99),
 		Quantile999: jitters.ValueAtQuantile(999),
@@ -436,7 +475,7 @@ func loop(
 	driver chan<- struct{},
 	responses <-chan *MeasuredResponse,
 	shutdownChannels [][]chan struct{},
-	latencyDivisor int64,
+	latencyDur time.Duration,
 ) {
 	defer mainWait.Done()
 
@@ -447,10 +486,17 @@ func loop(
 
 	intervalReport := time.Tick(cfg.Interval)
 
-	latencyHist := hdrhistogram.New(0, DayInMillis, 3)
-	globalLatencyHist := hdrhistogram.New(0, DayInMillis, 3)
-	jitterHist := hdrhistogram.New(0, DayInMillis, 3)
-	globalJitterHist := hdrhistogram.New(0, DayInMillis, 3)
+	latencyDurNS := latencyDur.Nanoseconds()
+	msInNS := time.Millisecond.Nanoseconds()
+	usInNS := time.Microsecond.Nanoseconds()
+
+	// dayInTimeUnits represents the number of time units (ms, us, or ns) in a 24-hour day.
+	dayInTimeUnits := int64(24 * time.Hour / latencyDur)
+
+	latencyHist := hdrhistogram.New(0, dayInTimeUnits, 3)
+	globalLatencyHist := hdrhistogram.New(0, dayInTimeUnits, 3)
+	jitterHist := hdrhistogram.New(0, dayInTimeUnits, 3)
+	globalJitterHist := hdrhistogram.New(0, dayInTimeUnits, 3)
 
 	cleanup := make(chan struct{}, 2)
 	interrupt := make(chan os.Signal, 2)
@@ -554,7 +600,8 @@ func loop(
 				bytes += resp.bytes
 				totalBytes += resp.bytes
 
-				latency := resp.latency.Nanoseconds() / latencyDivisor
+				respLatencyNS := resp.latency.Nanoseconds()
+				latency := respLatencyNS / latencyDurNS
 				if latency < int64(min) {
 					min = uint(latency)
 				}
@@ -563,13 +610,17 @@ func loop(
 				}
 				latencyHist.RecordValue(latency)
 				globalLatencyHist.RecordValue(latency)
-				promLatencyHistogram.Observe(float64(latency))
+				promLatencyMSHistogram.Observe(float64(respLatencyNS / msInNS))
+				promLatencyUSHistogram.Observe(float64(respLatencyNS / usInNS))
+				promLatencyNSHistogram.Observe(float64(respLatencyNS))
 
-				jitter := resp.timeBetweenFrames.Nanoseconds() / latencyDivisor
-				promJitterHistogram.Observe(float64(jitter))
-
+				respJitterNS := resp.timeBetweenFrames.Nanoseconds()
+				jitter := respJitterNS / latencyDurNS
 				jitterHist.RecordValue(jitter)
 				globalJitterHist.RecordValue(jitter)
+				promJitterMSHistogram.Observe(float64(respJitterNS / msInNS))
+				promJitterUSHistogram.Observe(float64(respJitterNS / usInNS))
+				promJitterNSHistogram.Observe(float64(respJitterNS))
 			}
 
 			if recvCount == cfg.TotalRequests {
@@ -619,13 +670,13 @@ type Config struct {
 // TODO: this would be much less ugly if the configuration was either stored in a struct, or used viper...
 func (cfg Config) Run() {
 
-	latencyDivisor := int64(1000000)
+	latencyDur := time.Millisecond
 	if cfg.LatencyUnit == "ms" {
-		latencyDivisor = 1000000
+		latencyDur = time.Millisecond
 	} else if cfg.LatencyUnit == "us" {
-		latencyDivisor = 1000
+		latencyDur = time.Microsecond
 	} else if cfg.LatencyUnit == "ns" {
-		latencyDivisor = 1
+		latencyDur = time.Nanosecond
 	} else {
 		log.Fatalf("latency unit should be [ms | us | ns].")
 	}
@@ -746,7 +797,7 @@ func (cfg Config) Run() {
 		driver,
 		responses,
 		shutdownChannels,
-		latencyDivisor,
+		latencyDur,
 	)
 
 	mainWait.Wait()

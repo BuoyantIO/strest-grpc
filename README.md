@@ -14,26 +14,30 @@ starting gRPC server on :11111
 ```
 
 Next run the client. By default, the client will send as many request as it can
-on a single connection for 10 seconds, and exit with a performance report.
+on a single connection. Kill it to see a final performance report.
 
 ```
-$ strest-grpc client --address localhost:11111
-2017-05-12T16:17:40-07:00  98.2KB    354/0 10s L:   0 [ 89  97 ]  102 J:   0   0
+$ strest-grpc client --address localhost:11111 --latencyUnit us
+2018-08-10T10:45:10-07:00    0.0B  39594/0 10s L: 132 [388 629 ] 7383 J:   0   0
 {
-  "good": 354,
+  "good": 42074,
   "bad": 0,
-  "bytes": 100556,
+  "bytes": 0,
   "latency": {
-    "50": 10,
-    "95": 89,
-    "99": 97,
-    "999": 102
+    "p50": 215,
+    "p75": 250,
+    "p90": 317,
+    "p95": 397,
+    "p99": 634,
+    "p999": 7383
   },
   "jitter": {
-    "50": 0,
-    "95": 0,
-    "99": 0,
-    "999": 0
+    "p50": 0,
+    "p75": 0,
+    "p90": 0,
+    "p95": 0,
+    "p99": 0,
+    "p999": 0
   }
 }
 ```
