@@ -1,5 +1,17 @@
 ## In the next release...
 
+## 0.0.7
+
+* [client] Fix `--latencyUnit` flag to correctly report metrics in the CLI and Prometheus.
+* [client] For latency calculations, favor Go's native time types.
+
+## 0.0.6
+
+* Update to grpc-go 1.10.1.
+* Docker images based on scratch images.
+* [server] Add `--latencyPercentiles` to specify a latency distribution.
+* [client] Fix default client address to match server.
+
 ## 0.0.5
 
 * Add `--logLevel` flag, uses logrus.
