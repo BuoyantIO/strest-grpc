@@ -1,4 +1,4 @@
-// Copyright ©2016 The gonum Authors. All rights reserved.
+// Copyright ©2016 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -6,13 +6,13 @@ package distmv
 
 import (
 	"math"
-	"math/rand"
 	"sort"
 
+	"golang.org/x/exp/rand"
 	"golang.org/x/tools/container/intsets"
 
 	"gonum.org/v1/gonum/floats"
-	"gonum.org/v1/gonum/matrix/mat64"
+	"gonum.org/v1/gonum/mat"
 	"gonum.org/v1/gonum/stat/distuv"
 )
 
@@ -31,14 +31,16 @@ import (
 // See https://en.wikipedia.org/wiki/Student%27s_t-distribution and
 // http://users.isy.liu.se/en/rt/roth/student.pdf for more information.
 type StudentsT struct {
-	nu  float64
-	mu  []float64
-	src *rand.Rand
+	nu float64
+	mu []float64
+	// If src is altered, rnd must be updated.
+	src rand.Source
+	rnd *rand.Rand
 
-	sigma mat64.SymDense // only stored if needed
+	sigma mat.SymDense // only stored if needed
 
-	chol       mat64.Cholesky
-	lower      mat64.TriDense
+	chol       mat.Cholesky
+	lower      mat.TriDense
 	logSqrtDet float64
 	dim        int
 }
@@ -48,7 +50,7 @@ type StudentsT struct {
 //
 // NewStudentsT panics if len(mu) == 0, or if len(mu) != sigma.Symmetric(). If
 // the covariance matrix is not positive-definite, nil is returned and ok is false.
-func NewStudentsT(mu []float64, sigma mat64.Symmetric, nu float64, src *rand.Rand) (dist *StudentsT, ok bool) {
+func NewStudentsT(mu []float64, sigma mat.Symmetric, nu float64, src rand.Source) (dist *StudentsT, ok bool) {
 	if len(mu) == 0 {
 		panic(badZeroDimension)
 	}
@@ -63,15 +65,18 @@ func NewStudentsT(mu []float64, sigma mat64.Symmetric, nu float64, src *rand.Ran
 		dim: dim,
 		src: src,
 	}
+	if src != nil {
+		s.rnd = rand.New(src)
+	}
 	copy(s.mu, mu)
 
 	ok = s.chol.Factorize(sigma)
 	if !ok {
 		return nil, false
 	}
-	s.sigma = *mat64.NewSymDense(dim, nil)
+	s.sigma = *mat.NewSymDense(dim, nil)
 	s.sigma.CopySym(sigma)
-	s.lower.LFromCholesky(&s.chol)
+	s.chol.LTo(&s.lower)
 	s.logSqrtDet = 0.5 * s.chol.LogDet()
 	return s, true
 }
@@ -87,7 +92,7 @@ func NewStudentsT(mu []float64, sigma mat64.Symmetric, nu float64, src *rand.Ran
 // ok indicates whether there was a failure during the update. If ok is false
 // the operation failed and dist is not usable.
 // Mathematically this is impossible, but can occur with finite precision arithmetic.
-func (s *StudentsT) ConditionStudentsT(observed []int, values []float64, src *rand.Rand) (dist *StudentsT, ok bool) {
+func (s *StudentsT) ConditionStudentsT(observed []int, values []float64, src rand.Source) (dist *StudentsT, ok bool) {
 	if len(observed) == 0 {
 		panic("studentst: no observed value")
 	}
@@ -113,7 +118,7 @@ func (s *StudentsT) ConditionStudentsT(observed []int, values []float64, src *ra
 // studentsTConditional updates a Student's T distribution based on the observed samples
 // (see documentation for the public function). The Gaussian conditional update
 // is treated as a special case when  nu == math.Inf(1).
-func studentsTConditional(observed []int, values []float64, nu float64, mu []float64, sigma mat64.Symmetric) (newNu float64, newMean []float64, newSigma *mat64.SymDense) {
+func studentsTConditional(observed []int, values []float64, nu float64, mu []float64, sigma mat.Symmetric) (newNu float64, newMean []float64, newSigma *mat.SymDense) {
 	dim := len(mu)
 	ob := len(observed)
 
@@ -133,11 +138,11 @@ func studentsTConditional(observed []int, values []float64, nu float64, mu []flo
 		mu2[i] = values[i] - mu[v]
 	}
 
-	var sigma11, sigma22 mat64.SymDense
+	var sigma11, sigma22 mat.SymDense
 	sigma11.SubsetSym(sigma, unobserved)
 	sigma22.SubsetSym(sigma, observed)
 
-	sigma21 := mat64.NewDense(ob, unob, nil)
+	sigma21 := mat.NewDense(ob, unob, nil)
 	for i, r := range observed {
 		for j, c := range unobserved {
 			v := sigma.At(r, c)
@@ -145,16 +150,16 @@ func studentsTConditional(observed []int, values []float64, nu float64, mu []flo
 		}
 	}
 
-	var chol mat64.Cholesky
+	var chol mat.Cholesky
 	ok := chol.Factorize(&sigma22)
 	if !ok {
 		return math.NaN(), nil, nil
 	}
 
 	// Compute mu_1 + sigma_{2,1}^T * sigma_{2,2}^-1 (v - mu_2).
-	v := mat64.NewVector(ob, mu2)
-	var tmp, tmp2 mat64.Vector
-	err := tmp.SolveCholeskyVec(&chol, v)
+	v := mat.NewVecDense(ob, mu2)
+	var tmp, tmp2 mat.VecDense
+	err := chol.SolveVec(&tmp, v)
 	if err != nil {
 		return math.NaN(), nil, nil
 	}
@@ -166,8 +171,8 @@ func studentsTConditional(observed []int, values []float64, nu float64, mu []flo
 
 	// Compute tmp4 = sigma_{2,1}^T * sigma_{2,2}^-1 * sigma_{2,1}.
 	// TODO(btracey): Should this be a method of SymDense?
-	var tmp3, tmp4 mat64.Dense
-	err = tmp3.SolveCholesky(&chol, sigma21)
+	var tmp3, tmp4 mat.Dense
+	err = chol.Solve(&tmp3, sigma21)
 	if err != nil {
 		return math.NaN(), nil, nil
 	}
@@ -189,7 +194,7 @@ func studentsTConditional(observed []int, values []float64, nu float64, mu []flo
 	}
 
 	// Compute beta = (v - mu_2)^T * sigma_{2,2}^-1 * (v - mu_2)^T
-	beta := mat64.Dot(v, &tmp)
+	beta := mat.Dot(v, &tmp)
 
 	// Scale the covariance matrix
 	sigma11.ScaleSym((nu+beta)/(nu+float64(ob)), &sigma11)
@@ -221,9 +226,9 @@ func findUnob(observed []int, dim int) (unobserved []int) {
 //  covariance(i, j) = E[(x_i - E[x_i])(x_j - E[x_j])]
 // If the input matrix is nil a new matrix is allocated, otherwise the result
 // is stored in-place into the input.
-func (st *StudentsT) CovarianceMatrix(s *mat64.SymDense) *mat64.SymDense {
+func (st *StudentsT) CovarianceMatrix(s *mat.SymDense) *mat.SymDense {
 	if s == nil {
-		s = mat64.NewSymDense(st.dim, nil)
+		s = mat.NewSymDense(st.dim, nil)
 	}
 	sn := s.Symmetric()
 	if sn != st.dim {
@@ -256,12 +261,12 @@ func (s *StudentsT) LogProb(y []float64) float64 {
 	copy(shift, y)
 	floats.Sub(shift, s.mu)
 
-	x := mat64.NewVector(s.dim, shift)
+	x := mat.NewVecDense(s.dim, shift)
 
-	var tmp mat64.Vector
-	tmp.SolveCholeskyVec(&s.chol, x)
+	var tmp mat.VecDense
+	s.chol.SolveVec(&tmp, x)
 
-	dot := mat64.Dot(&tmp, x)
+	dot := mat.Dot(&tmp, x)
 
 	return t1 - ((nu+n)/2)*math.Log(1+dot/nu)
 }
@@ -278,12 +283,12 @@ func (s *StudentsT) LogProb(y []float64) float64 {
 // ok indicates whether there was a failure during the marginalization. If ok is false
 // the operation failed and dist is not usable.
 // Mathematically this is impossible, but can occur with finite precision arithmetic.
-func (s *StudentsT) MarginalStudentsT(vars []int, src *rand.Rand) (dist *StudentsT, ok bool) {
+func (s *StudentsT) MarginalStudentsT(vars []int, src rand.Source) (dist *StudentsT, ok bool) {
 	newMean := make([]float64, len(vars))
 	for i, v := range vars {
 		newMean[i] = s.mu[v]
 	}
-	var newSigma mat64.SymDense
+	var newSigma mat.SymDense
 	newSigma.SubsetSym(&s.sigma, vars)
 	return NewStudentsT(newMean, &newSigma, s.nu, src)
 }
@@ -295,7 +300,7 @@ func (s *StudentsT) MarginalStudentsT(vars []int, src *rand.Rand) (dist *Student
 // See https://en.wikipedia.org/wiki/Marginal_distribution for more information.
 //
 // The input src is passed to the call to NewStudentsT.
-func (s *StudentsT) MarginalStudentsTSingle(i int, src *rand.Rand) distuv.StudentsT {
+func (s *StudentsT) MarginalStudentsTSingle(i int, src rand.Source) distuv.StudentsT {
 	return distuv.StudentsT{
 		Mu:    s.mu[i],
 		Sigma: math.Sqrt(s.sigma.At(i, i)),
@@ -316,6 +321,11 @@ func (s *StudentsT) Mean(x []float64) []float64 {
 	return x
 }
 
+// Nu returns the degrees of freedom parameter of the distribution.
+func (s *StudentsT) Nu() float64 {
+	return s.nu
+}
+
 // Prob computes the value of the probability density function at x.
 func (s *StudentsT) Prob(y []float64) float64 {
 	return math.Exp(s.LogProb(y))
@@ -333,17 +343,17 @@ func (s *StudentsT) Rand(x []float64) []float64 {
 	// Generate Y.
 	x = reuseAs(x, s.dim)
 	tmp := make([]float64, s.dim)
-	if s.src == nil {
+	if s.rnd == nil {
 		for i := range x {
 			tmp[i] = rand.NormFloat64()
 		}
 	} else {
 		for i := range x {
-			tmp[i] = s.src.NormFloat64()
+			tmp[i] = s.rnd.NormFloat64()
 		}
 	}
-	xVec := mat64.NewVector(s.dim, x)
-	tmpVec := mat64.NewVector(s.dim, tmp)
+	xVec := mat.NewVecDense(s.dim, x)
+	tmpVec := mat.NewVecDense(s.dim, tmp)
 	xVec.MulVec(&s.lower, tmpVec)
 
 	u := distuv.ChiSquared{K: s.nu, Src: s.src}.Rand()

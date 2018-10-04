@@ -42,12 +42,12 @@
   name = "golang.org/x/net"
 
 [[constraint]]
-  branch = "addbranin"
+  branch = "master"
   name = "gonum.org/v1/gonum"
 
 [[constraint]]
   name = "google.golang.org/grpc"
-  version = "1.10.1"
+  version = "1.15.0"
 
 [[constraint]]
   branch = "v1"

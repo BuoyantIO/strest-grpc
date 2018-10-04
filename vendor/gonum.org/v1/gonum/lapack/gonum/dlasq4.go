@@ -1,4 +1,4 @@
-// Copyright ©2015 The gonum Authors. All rights reserved.
+// Copyright ©2015 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -71,7 +71,6 @@ func (impl Implementation) Dlasq4(i0, n0 int, z []float64, pp int, n0in int, dmi
 					np = nn - 9
 				} else {
 					np = nn - 2*pp
-					b2 = z[np-2]
 					gam = dn1
 					if z[np-4] > z[np-2] {
 						return tau, ttype, g

@@ -2,7 +2,7 @@
 // https://github.com/scipy/scipy/blob/master/scipy/special/c_misc/fsolve.c
 // https://github.com/scipy/scipy/blob/master/scipy/special/c_misc/misc.h
 
-// Copyright ©2017 The gonum Authors. All rights reserved.
+// Copyright ©2017 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -46,7 +46,7 @@ const (
 //  errEst: error estimation
 func falsePosition(x1, x2, f1, f2, absErr, relErr, bisectTil float64, f objectiveFunc, fExtra []float64) (fSolveResult, float64, float64, float64) {
 	// The false position steps are either unmodified, or modified with the
-	// Anderson-Bjorck method as appropiate. Theoretically, this has a "speed of
+	// Anderson-Bjorck method as appropriate. Theoretically, this has a "speed of
 	// convergence" of 1.7 (bisection is 1, Newton is 2).
 	// Note that this routine was designed initially to work with gammaincinv, so
 	// it may not be tuned right for other problems. Don't use it blindly.

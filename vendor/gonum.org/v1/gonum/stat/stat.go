@@ -1,9 +1,8 @@
-// Copyright ©2014 The gonum Authors. All rights reserved.
+// Copyright ©2014 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package stat provides generalized statistical functions.
-package stat // import "gonum.org/v1/gonum/stat"
+package stat
 
 import (
 	"math"
@@ -15,10 +14,10 @@ import (
 // CumulantKind specifies the behavior for calculating the empirical CDF or Quantile
 type CumulantKind int
 
+// List of supported CumulantKind values for the Quantile function.
+// Constant values should match the R nomenclature. See
+// https://en.wikipedia.org/wiki/Quantile#Estimating_the_quantiles_of_a_population
 const (
-	// Constant values should match the R nomenclature. See
-	// https://en.wikipedia.org/wiki/Quantile#Estimating_the_quantiles_of_a_population
-
 	// Empirical treats the distribution as the actual empirical distribution.
 	Empirical CumulantKind = 1
 )
@@ -218,6 +217,59 @@ func Correlation(x, y, weights []float64) float64 {
 	return (sxy - xcompensation*ycompensation/sumWeights) / math.Sqrt(sxx*syy)
 }
 
+// Kendall returns the weighted Tau-a Kendall correlation between the
+// samples of x and y. The Kendall correlation measures the quantity of
+// concordant and discordant pairs of numbers. If weights are specified then
+// each pair is weighted by weights[i] * weights[j] and the final sum is
+// normalized to stay between -1 and 1.
+// The lengths of x and y must be equal. If weights is nil then all of the
+// weights are 1. If weights is not nil, then len(x) must equal len(weights).
+func Kendall(x, y, weights []float64) float64 {
+	if len(x) != len(y) {
+		panic("stat: slice length mismatch")
+	}
+
+	var (
+		cc float64 // number of concordant pairs
+		dc float64 // number of discordant pairs
+		n  = len(x)
+	)
+
+	if weights == nil {
+		for i := 0; i < n; i++ {
+			for j := i; j < n; j++ {
+				if i == j {
+					continue
+				}
+				if math.Signbit(x[j]-x[i]) == math.Signbit(y[j]-y[i]) {
+					cc++
+				} else {
+					dc++
+				}
+			}
+		}
+		return (cc - dc) / float64(n*(n-1)/2)
+	}
+
+	var sumWeights float64
+
+	for i := 0; i < n; i++ {
+		for j := i; j < n; j++ {
+			if i == j {
+				continue
+			}
+			weight := weights[i] * weights[j]
+			if math.Signbit(x[j]-x[i]) == math.Signbit(y[j]-y[i]) {
+				cc += weight
+			} else {
+				dc += weight
+			}
+			sumWeights += weight
+		}
+	}
+	return float64(cc-dc) / sumWeights
+}
+
 // Covariance returns the weighted covariance between the samples of x and y.
 //  sum_i {w_i (x_i - meanX) * (y_i - meanY)} / (sum_j {w_j} - 1)
 // The lengths of x and y must be equal. If weights is nil then all of the
@@ -232,6 +284,13 @@ func Covariance(x, y, weights []float64) float64 {
 	}
 	xu := Mean(x, weights)
 	yu := Mean(y, weights)
+	return covarianceMeans(x, y, weights, xu, yu)
+}
+
+// covarianceMeans returns the weighted covariance between x and y with the mean
+// of x and y already specified. See the documentation of Covariance for more
+// information.
+func covarianceMeans(x, y, weights []float64, xu, yu float64) float64 {
 	var (
 		ss            float64
 		xcompensation float64
@@ -448,8 +507,8 @@ func Histogram(count, dividers, x, weights []float64) []float64 {
 	if x[0] < dividers[0] {
 		panic("histogram: minimum x value is less than lowest divider")
 	}
-	if x[len(x)-1] >= dividers[len(dividers)-1] {
-		panic("histogram: minimum x value is greater than highest divider")
+	if dividers[len(dividers)-1] <= x[len(x)-1] {
+		panic("histogram: maximum x value is greater than or equal to highest divider")
 	}
 
 	idx := 0
@@ -709,8 +768,11 @@ func LinearRegression(x, y, weights []float64, origin bool) (alpha, beta float64
 		return 0, beta
 	}
 
-	beta = Covariance(x, y, weights) / Variance(x, weights)
-	alpha = Mean(y, weights) - beta*Mean(x, weights)
+	xu, xv := MeanVariance(x, weights)
+	yu := Mean(y, weights)
+	cov := covarianceMeans(x, y, weights, xu, yu)
+	beta = cov / xv
+	alpha = yu - beta*xu
 	return alpha, beta
 }
 
@@ -863,12 +925,48 @@ func Mode(x, weights []float64) (val float64, count float64) {
 	return max, maxCount
 }
 
+// BivariateMoment computes the weighted mixed moment between the samples x and y.
+//  E[(x - μ_x)^r*(y - μ_y)^s]
+// No degrees of freedom correction is done.
+// The lengths of x and y must be equal. If weights is nil then all of the
+// weights are 1. If weights is not nil, then len(x) must equal len(weights).
+func BivariateMoment(r, s float64, x, y, weights []float64) float64 {
+	meanX := Mean(x, weights)
+	meanY := Mean(y, weights)
+	if len(x) != len(y) {
+		panic("stat: slice length mismatch")
+	}
+	if weights == nil {
+		var m float64
+		for i, vx := range x {
+			vy := y[i]
+			m += math.Pow(vx-meanX, r) * math.Pow(vy-meanY, s)
+		}
+		return m / float64(len(x))
+	}
+	if len(weights) != len(x) {
+		panic("stat: slice length mismatch")
+	}
+	var (
+		m          float64
+		sumWeights float64
+	)
+	for i, vx := range x {
+		vy := y[i]
+		w := weights[i]
+		m += w * math.Pow(vx-meanX, r) * math.Pow(vy-meanY, s)
+		sumWeights += w
+	}
+	return m / sumWeights
+}
+
 // Moment computes the weighted n^th moment of the samples,
 //  E[(x - μ)^N]
 // No degrees of freedom correction is done.
 // If weights is nil then all of the weights are 1. If weights is not nil, then
 // len(x) must equal len(weights).
 func Moment(moment float64, x, weights []float64) float64 {
+	// This also checks that x and weights have the same length.
 	mean := Mean(x, weights)
 	if weights == nil {
 		var m float64
@@ -882,8 +980,9 @@ func Moment(moment float64, x, weights []float64) float64 {
 		sumWeights float64
 	)
 	for i, v := range x {
-		m += weights[i] * math.Pow(v-mean, moment)
-		sumWeights += weights[i]
+		w := weights[i]
+		m += w * math.Pow(v-mean, moment)
+		sumWeights += w
 	}
 	return m / sumWeights
 }
@@ -952,22 +1051,26 @@ func Quantile(p float64, c CumulantKind, x, weights []float64) float64 {
 	}
 	switch c {
 	case Empirical:
-		var cumsum float64
-		fidx := p * sumWeights
-		for i := range x {
-			if weights == nil {
-				cumsum++
-			} else {
-				cumsum += weights[i]
-			}
-			if cumsum >= fidx {
-				return x[i]
-			}
-		}
-		panic("impossible")
+		return empiricalQuantile(p, x, weights, sumWeights)
 	default:
 		panic("stat: bad cumulant kind")
 	}
+}
+
+func empiricalQuantile(p float64, x, weights []float64, sumWeights float64) float64 {
+	var cumsum float64
+	fidx := p * sumWeights
+	for i := range x {
+		if weights == nil {
+			cumsum++
+		} else {
+			cumsum += weights[i]
+		}
+		if cumsum >= fidx {
+			return x[i]
+		}
+	}
+	panic("impossible")
 }
 
 // Skew computes the skewness of the sample data.
@@ -1126,7 +1229,6 @@ func Variance(x, weights []float64) float64 {
 // If weights is nil then all of the weights are 1. If weights is not nil, then
 // len(x) must equal len(weights).
 func MeanVariance(x, weights []float64) (mean, variance float64) {
-
 	// This uses the corrected two-pass algorithm (1.7), from "Algorithms for computing
 	// the sample variance: Analysis and recommendations" by Chan, Tony F., Gene H. Golub,
 	// and Randall J. LeVeque.

@@ -1,4 +1,4 @@
-// Copyright ©2014 The gonum Authors. All rights reserved.
+// Copyright ©2014 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -10,7 +10,7 @@ import (
 	"math"
 	"time"
 
-	"gonum.org/v1/gonum/matrix/mat64"
+	"gonum.org/v1/gonum/mat"
 )
 
 const defaultGradientAbsTol = 1e-6
@@ -38,6 +38,10 @@ const (
 	// MajorIteration indicates that the next candidate location for
 	// an optimum has been found and convergence should be checked.
 	MajorIteration
+	// MethodDone declares that the method is done running. A method must
+	// be a Statuser in order to use this iteration, and after returning
+	// MethodDone, the Status must return other than NotTerminated.
+	MethodDone
 	// FuncEvaluation specifies that the objective function
 	// should be evaluated.
 	FuncEvaluation
@@ -47,6 +51,8 @@ const (
 	// HessEvaluation specifies that the Hessian
 	// of the objective function should be evaluated.
 	HessEvaluation
+	// signalDone is used internally to signal completion.
+	signalDone
 
 	// Mask for the evaluating operations.
 	evalMask = FuncEvaluation | GradEvaluation | HessEvaluation
@@ -76,6 +82,8 @@ var operationNames = map[Operation]string{
 	InitIteration:  "InitIteration",
 	MajorIteration: "MajorIteration",
 	PostIteration:  "PostIteration",
+	MethodDone:     "MethodDone",
+	signalDone:     "signalDone",
 }
 
 // Location represents a location in the optimization procedure.
@@ -83,7 +91,7 @@ type Location struct {
 	X        []float64
 	F        float64
 	Gradient []float64
-	Hessian  *mat64.SymDense
+	Hessian  *mat.SymDense
 }
 
 // Result represents the answer of an optimization run. It contains the optimum
@@ -131,7 +139,7 @@ type Problem struct {
 
 	// Hess evaluates the Hessian at x and stores the result in-place in hess.
 	// Hess must not modify x.
-	Hess func(hess mat64.MutableSymmetric, x []float64)
+	Hess func(hess mat.MutableSymmetric, x []float64)
 
 	// Status reports the status of the objective function being optimized and any
 	// error. This can be used to terminate early, for example when the function is
@@ -156,15 +164,13 @@ func (p Problem) satisfies(method Needser) error {
 // settings, convergence information, and Recorder information. In general, users
 // should use DefaultSettings rather than constructing a Settings literal.
 //
-// If UseInitData is true, InitialValue, InitialGradient and InitialHessian
-// specify function information at the initial location.
-//
 // If Recorder is nil, no information will be recorded.
 type Settings struct {
-	UseInitialData  bool            // Use supplied information about the conditions at the initial x.
-	InitialValue    float64         // Function value at the initial x.
-	InitialGradient []float64       // Gradient at the initial x.
-	InitialHessian  *mat64.SymDense // Hessian at the initial x.
+	// InitValues specifies properties (function value, gradient, etc.) known
+	// at the initial location passed to Minimize. If InitValues is non-nil, then
+	// the function value F must be provided, the location X must not be specified
+	// and other fields may be specified.
+	InitValues *Location
 
 	// FunctionThreshold is the threshold for acceptably small values of the
 	// objective function. FunctionThreshold status is returned if
@@ -184,7 +190,7 @@ type Settings struct {
 	//
 	// If f < f_best and
 	//  f_best - f > FunctionConverge.Relative * maxabs(f, f_best) + FunctionConverge.Absolute
-	// then a significant decrease has occured, and f_best is updated.
+	// then a significant decrease has occurred, and f_best is updated.
 	//
 	// If there is no significant decrease for FunctionConverge.Iterations
 	// major iterations, FunctionConvergence status is returned.
@@ -201,7 +207,7 @@ type Settings struct {
 
 	// Runtime is the maximum runtime allowed. RuntimeLimit status is returned
 	// if the duration of the run is longer than this value. Runtime is only
-	// checked at iterations of the Method.
+	// checked at MajorIterations of the Method.
 	// If it equals zero, this setting has no effect.
 	// The default value is 0.
 	Runtime time.Duration
@@ -233,8 +239,9 @@ type Settings struct {
 	Concurrent int
 }
 
-// DefaultSettings returns a new Settings struct containing the default settings.
-func DefaultSettings() *Settings {
+// DefaultSettingsLocal returns a new Settings struct that contains default settings
+// for running a local optimization.
+func DefaultSettingsLocal() *Settings {
 	return &Settings{
 		GradientThreshold: defaultGradientAbsTol,
 		FunctionThreshold: math.Inf(-1),
@@ -254,9 +261,9 @@ func resize(x []float64, dim int) []float64 {
 	return x[:dim]
 }
 
-func resizeSymDense(m *mat64.SymDense, dim int) *mat64.SymDense {
+func resizeSymDense(m *mat.SymDense, dim int) *mat.SymDense {
 	if m == nil || cap(m.RawSymmetric().Data) < dim*dim {
-		return mat64.NewSymDense(dim, nil)
+		return mat.NewSymDense(dim, nil)
 	}
-	return mat64.NewSymDense(dim, m.RawSymmetric().Data[:dim*dim])
+	return mat.NewSymDense(dim, m.RawSymmetric().Data[:dim*dim])
 }

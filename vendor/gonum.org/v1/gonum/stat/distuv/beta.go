@@ -1,4 +1,4 @@
-// Copyright ©2016 The gonum Authors. All rights reserved.
+// Copyright ©2016 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -6,7 +6,8 @@ package distuv
 
 import (
 	"math"
-	"math/rand"
+
+	"golang.org/x/exp/rand"
 
 	"gonum.org/v1/gonum/mathext"
 )
@@ -26,7 +27,7 @@ type Beta struct {
 	// than 0.
 	Beta float64
 
-	Source *rand.Rand
+	Src rand.Source
 }
 
 // CDF computes the value of the cumulative distribution function at x.
@@ -38,6 +39,15 @@ func (b Beta) CDF(x float64) float64 {
 		return 1
 	}
 	return mathext.RegIncBeta(b.Alpha, b.Beta, x)
+}
+
+// Entropy returns the differential entropy of the distribution.
+func (b Beta) Entropy() float64 {
+	if b.Alpha <= 0 || b.Beta <= 0 {
+		panic("beta: negative parameters")
+	}
+	return mathext.Lbeta(b.Alpha, b.Beta) - (b.Alpha-1)*mathext.Digamma(b.Alpha) -
+		(b.Beta-1)*mathext.Digamma(b.Beta) + (b.Alpha+b.Beta-2)*mathext.Digamma(b.Alpha+b.Beta)
 }
 
 // ExKurtosis returns the excess kurtosis of the distribution.
@@ -99,8 +109,8 @@ func (b Beta) Quantile(p float64) float64 {
 
 // Rand returns a random sample drawn from the distribution.
 func (b Beta) Rand() float64 {
-	ga := Gamma{Alpha: b.Alpha, Beta: 1, Source: b.Source}.Rand()
-	gb := Gamma{Alpha: b.Beta, Beta: 1, Source: b.Source}.Rand()
+	ga := Gamma{Alpha: b.Alpha, Beta: 1, Src: b.Src}.Rand()
+	gb := Gamma{Alpha: b.Beta, Beta: 1, Src: b.Src}.Rand()
 	return ga / (ga + gb)
 }
 

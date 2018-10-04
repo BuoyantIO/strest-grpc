@@ -1,4 +1,4 @@
-// Copyright ©2014 The gonum Authors. All rights reserved.
+// Copyright ©2014 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -6,7 +6,8 @@ package distuv
 
 import (
 	"math"
-	"math/rand"
+
+	"golang.org/x/exp/rand"
 
 	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/mathext"
@@ -18,9 +19,9 @@ var UnitNormal = Normal{Mu: 0, Sigma: 1}
 
 // Normal respresents a normal (Gaussian) distribution (https://en.wikipedia.org/wiki/Normal_distribution).
 type Normal struct {
-	Mu     float64 // Mean of the normal distribution
-	Sigma  float64 // Standard deviation of the normal distribution
-	Source *rand.Rand
+	Mu    float64 // Mean of the normal distribution
+	Sigma float64 // Standard deviation of the normal distribution
+	Src   rand.Source
 
 	// Needs to be Mu and Sigma and not Mean and StdDev because Normal has functions
 	// Mean and StdDev
@@ -28,7 +29,7 @@ type Normal struct {
 
 // CDF computes the value of the cumulative density function at x.
 func (n Normal) CDF(x float64) float64 {
-	return 0.5 * (1 + math.Erf((x-n.Mu)/(n.Sigma*math.Sqrt2)))
+	return 0.5 * math.Erfc(-(x-n.Mu)/(n.Sigma*math.Sqrt2))
 }
 
 // ConjugateUpdate updates the parameters of the distribution from the sufficient
@@ -45,7 +46,6 @@ func (n Normal) CDF(x float64) float64 {
 //
 // This function panics if len(suffStat) != 2 or len(priorStrength) != 2.
 func (n *Normal) ConjugateUpdate(suffStat []float64, nSamples float64, priorStrength []float64) {
-
 	// TODO: Support prior strength with math.Inf(1) to allow updating with
 	// a known mean/standard deviation
 
@@ -81,7 +81,7 @@ func (Normal) ExKurtosis() float64 {
 // are 1. If weights is not nil, then the len(weights) must equal len(samples).
 func (n *Normal) Fit(samples, weights []float64) {
 	suffStat := make([]float64, n.NumSuffStat())
-	nSamples := n.SuffStat(samples, weights, suffStat)
+	nSamples := n.SuffStat(suffStat, samples, weights)
 	n.ConjugateUpdate(suffStat, nSamples, make([]float64, n.NumSuffStat()))
 }
 
@@ -131,10 +131,10 @@ func (n Normal) Quantile(p float64) float64 {
 // Rand returns a random sample drawn from the distribution.
 func (n Normal) Rand() float64 {
 	var rnd float64
-	if n.Source == nil {
+	if n.Src == nil {
 		rnd = rand.NormFloat64()
 	} else {
-		rnd = n.Source.NormFloat64()
+		rnd = rand.New(n.Src).NormFloat64()
 	}
 	return rnd*n.Sigma + n.Mu
 }
@@ -189,7 +189,7 @@ func (n Normal) StdDev() float64 {
 //
 // If weights is nil, the weights are assumed to be 1, otherwise panics if
 // len(samples) != len(weights). Panics if len(suffStat) != NumSuffStat().
-func (Normal) SuffStat(samples, weights, suffStat []float64) (nSamples float64) {
+func (Normal) SuffStat(suffStat, samples, weights []float64) (nSamples float64) {
 	lenSamp := len(samples)
 	if len(weights) != 0 && len(samples) != len(weights) {
 		panic(badLength)

@@ -1,4 +1,4 @@
-// Copyright ©2014 The gonum Authors. All rights reserved.
+// Copyright ©2014 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -17,9 +17,28 @@ type GradientDescent struct {
 	StepSizer StepSizer
 
 	ls *LinesearchMethod
+
+	status Status
+	err    error
 }
 
-func (g *GradientDescent) Init(loc *Location) (Operation, error) {
+func (g *GradientDescent) Status() (Status, error) {
+	return g.status, g.err
+}
+
+func (g *GradientDescent) Init(dim, tasks int) int {
+	g.status = NotTerminated
+	g.err = nil
+	return 1
+}
+
+func (g *GradientDescent) Run(operation chan<- Task, result <-chan Task, tasks []Task) {
+	g.status, g.err = localOptimizer{}.run(g, operation, result, tasks)
+	close(operation)
+	return
+}
+
+func (g *GradientDescent) initLocal(loc *Location) (Operation, error) {
 	if g.Linesearcher == nil {
 		g.Linesearcher = &Backtracking{}
 	}
@@ -36,7 +55,7 @@ func (g *GradientDescent) Init(loc *Location) (Operation, error) {
 	return g.ls.Init(loc)
 }
 
-func (g *GradientDescent) Iterate(loc *Location) (Operation, error) {
+func (g *GradientDescent) iterateLocal(loc *Location) (Operation, error) {
 	return g.ls.Iterate(loc)
 }
 

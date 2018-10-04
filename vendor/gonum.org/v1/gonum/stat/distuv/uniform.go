@@ -1,4 +1,4 @@
-// Copyright ©2014 The gonum Authors. All rights reserved.
+// Copyright ©2014 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -6,7 +6,8 @@ package distuv
 
 import (
 	"math"
-	"math/rand"
+
+	"golang.org/x/exp/rand"
 )
 
 // UnitUniform is an instantiation of the uniform distribution with Min = 0
@@ -15,9 +16,9 @@ var UnitUniform = Uniform{Min: 0, Max: 1}
 
 // Uniform represents a continuous uniform distribution (https://en.wikipedia.org/wiki/Uniform_distribution_%28continuous%29).
 type Uniform struct {
-	Min    float64
-	Max    float64
-	Source *rand.Rand
+	Min float64
+	Max float64
+	Src rand.Source
 }
 
 // CDF computes the value of the cumulative density function at x.
@@ -66,7 +67,6 @@ func (u Uniform) MarshalParameters(p []Parameter) {
 	p[0].Value = u.Min
 	p[1].Name = "Max"
 	p[1].Value = u.Max
-	return
 }
 
 // Mean returns the mean of the probability distribution.
@@ -108,10 +108,10 @@ func (u Uniform) Quantile(p float64) float64 {
 // Rand returns a random sample drawn from the distribution.
 func (u Uniform) Rand() float64 {
 	var rnd float64
-	if u.Source == nil {
+	if u.Src == nil {
 		rnd = rand.Float64()
 	} else {
-		rnd = u.Source.Float64()
+		rnd = rand.New(u.Src).Float64()
 	}
 	return rnd*(u.Max-u.Min) + u.Min
 }

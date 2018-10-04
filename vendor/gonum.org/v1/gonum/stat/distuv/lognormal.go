@@ -1,4 +1,4 @@
-// Copyright ©2015 The gonum Authors. All rights reserved.
+// Copyright ©2015 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -6,21 +6,22 @@ package distuv
 
 import (
 	"math"
-	"math/rand"
+
+	"golang.org/x/exp/rand"
 )
 
 // LogNormal represents a random variable whose log is normally distributed.
 // The probability density function is given by
 //  1/(x σ √2π) exp(-(ln(x)-μ)^2)/(2σ^2))
 type LogNormal struct {
-	Mu     float64
-	Sigma  float64
-	Source *rand.Rand
+	Mu    float64
+	Sigma float64
+	Src   rand.Source
 }
 
 // CDF computes the value of the cumulative density function at x.
 func (l LogNormal) CDF(x float64) float64 {
-	return 0.5 + 0.5*math.Erf((math.Log(x)-l.Mu)/(math.Sqrt2*l.Sigma))
+	return 0.5 * math.Erfc(-(math.Log(x)-l.Mu)/(math.Sqrt2*l.Sigma))
 }
 
 // Entropy returns the differential entropy of the distribution.
@@ -81,10 +82,10 @@ func (l LogNormal) Quantile(p float64) float64 {
 // Rand returns a random sample drawn from the distribution.
 func (l LogNormal) Rand() float64 {
 	var rnd float64
-	if l.Source == nil {
+	if l.Src == nil {
 		rnd = rand.NormFloat64()
 	} else {
-		rnd = l.Source.NormFloat64()
+		rnd = rand.New(l.Src).NormFloat64()
 	}
 	return math.Exp(rnd*l.Sigma + l.Mu)
 }

@@ -1,4 +1,4 @@
-// Copyright ©2015 The gonum Authors. All rights reserved.
+// Copyright ©2015 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -7,7 +7,7 @@ package optimize
 import (
 	"math"
 
-	"gonum.org/v1/gonum/matrix/mat64"
+	"gonum.org/v1/gonum/mat"
 )
 
 const maxNewtonModifications = 20
@@ -46,14 +46,33 @@ type Newton struct {
 	// Increase must be greater than 1. If Increase is 0, it is defaulted to 5.
 	Increase float64
 
+	status Status
+	err    error
+
 	ls *LinesearchMethod
 
-	hess *mat64.SymDense // Storage for a copy of the Hessian matrix.
-	chol mat64.Cholesky  // Storage for the Cholesky factorization.
+	hess *mat.SymDense // Storage for a copy of the Hessian matrix.
+	chol mat.Cholesky  // Storage for the Cholesky factorization.
 	tau  float64
 }
 
-func (n *Newton) Init(loc *Location) (Operation, error) {
+func (n *Newton) Status() (Status, error) {
+	return n.status, n.err
+}
+
+func (n *Newton) Init(dim, tasks int) int {
+	n.status = NotTerminated
+	n.err = nil
+	return 1
+}
+
+func (n *Newton) Run(operation chan<- Task, result <-chan Task, tasks []Task) {
+	n.status, n.err = localOptimizer{}.run(n, operation, result, tasks)
+	close(operation)
+	return
+}
+
+func (n *Newton) initLocal(loc *Location) (Operation, error) {
 	if n.Increase == 0 {
 		n.Increase = 5
 	}
@@ -72,7 +91,7 @@ func (n *Newton) Init(loc *Location) (Operation, error) {
 	return n.ls.Init(loc)
 }
 
-func (n *Newton) Iterate(loc *Location) (Operation, error) {
+func (n *Newton) iterateLocal(loc *Location) (Operation, error) {
 	return n.ls.Iterate(loc)
 }
 
@@ -88,8 +107,8 @@ func (n *Newton) NextDirection(loc *Location, dir []float64) (stepSize float64) 
 	// the Identity) from Nocedal, Wright (2006), 2nd edition.
 
 	dim := len(loc.X)
-	d := mat64.NewVector(dim, dir)
-	grad := mat64.NewVector(dim, loc.Gradient)
+	d := mat.NewVecDense(dim, dir)
+	grad := mat.NewVecDense(dim, loc.Gradient)
 	n.hess.CopySym(loc.Hessian)
 
 	// Find the smallest diagonal entry of the Hessian.
@@ -122,7 +141,7 @@ func (n *Newton) NextDirection(loc *Location, dir []float64) (stepSize float64) 
 		pd := n.chol.Factorize(n.hess)
 		if pd {
 			// Store the solution in d's backing array, dir.
-			d.SolveCholeskyVec(&n.chol, grad)
+			n.chol.SolveVec(d, grad)
 			d.ScaleVec(-1, d)
 			return 1
 		}

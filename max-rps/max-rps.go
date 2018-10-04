@@ -11,7 +11,7 @@ import (
 	pb "github.com/buoyantio/strest-grpc/protos"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
-	"gonum.org/v1/gonum/matrix/mat64"
+	"gonum.org/v1/gonum/mat"
 	"gonum.org/v1/gonum/optimize"
 	"google.golang.org/grpc"
 )
@@ -49,9 +49,9 @@ func (cfg Config) Run() {
 		denseLatency = append(denseLatency, float64(throughput))
 	}
 
-	latency := mat64.NewDense(len(denseLatency)/2, 2, denseLatency)
-	concurrency := mat64.Col(nil, 0, latency)
-	throughput := mat64.Col(nil, 1, latency)
+	latency := mat.NewDense(len(denseLatency)/2, 2, denseLatency)
+	concurrency := mat.Col(nil, 0, latency)
+	throughput := mat.Col(nil, 1, latency)
 
 	// `f` and `grad` were borrowed from https://play.golang.org/p/wWUH4E5LhP
 	f := func(x []float64) float64 {
@@ -88,11 +88,11 @@ func (cfg Config) Run() {
 		Func: f,
 		Grad: grad,
 	}
-	settings := optimize.DefaultSettings()
+	settings := optimize.DefaultSettingsLocal()
 	settings.GradientThreshold = 1e-2 // Looser tolerance because using FD derivative
 
 	initX := []float64{0, -1, -3} // make sure they all start positive
-	result, err := optimize.Local(problem, initX, nil, nil)
+	result, err := optimize.Minimize(problem, initX, nil, nil)
 	if err != nil {
 		fmt.Println("Optimization error:", err)
 	}
