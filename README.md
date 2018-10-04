@@ -59,6 +59,8 @@ Available Commands:
   client      run the strest-grpc client
   help        Help about any command
   max-rps     compute max RPS
+  ref-client  run a gRPC reference client
+  ref-server  run a gRPC reference server
   server      run the strest-grpc server
 
 Flags:
@@ -138,6 +140,38 @@ Flags:
       --concurrencyLevels string   levels of concurrency to test with (default "1,5,10,20,30")
   -h, --help                       help for max-rps
       --timePerLevel duration      how much time to spend testing each concurrency level (default 1s)
+
+Global Flags:
+  -l, --logLevel string   log level, must be one of: panic, fatal, error, warn, info, debug (default "info")
+```
+
+#### Ref-Client
+
+```
+$ strest-grpc ref-client --help
+run a gRPC reference client
+
+Usage:
+  strest-grpc ref-client [flags]
+
+Flags:
+  -h, --help   help for ref-client
+
+Global Flags:
+  -l, --logLevel string   log level, must be one of: panic, fatal, error, warn, info, debug (default "info")
+```
+
+#### Ref-Server
+
+```
+$ strest-grpc ref-server --help
+run a gRPC reference server
+
+Usage:
+  strest-grpc ref-server [flags]
+
+Flags:
+  -h, --help   help for ref-server
 
 Global Flags:
   -l, --logLevel string   log level, must be one of: panic, fatal, error, warn, info, debug (default "info")
