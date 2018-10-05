@@ -7,9 +7,16 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+
+	"net/http"
+	_ "net/http/pprof"
 )
 
 func Run() {
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
 	address := "localhost:11111"
 
 	log.Infof("connecting to %s", address)
