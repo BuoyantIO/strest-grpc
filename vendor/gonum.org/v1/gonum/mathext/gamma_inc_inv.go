@@ -1,7 +1,7 @@
 // Derived from SciPy's special/c_misc/gammaincinv.c
 // https://github.com/scipy/scipy/blob/master/scipy/special/c_misc/gammaincinv.c
 
-// Copyright ©2017 The gonum Authors. All rights reserved.
+// Copyright ©2017 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -46,7 +46,7 @@ func gammaIncInv(a, y float64) float64 {
 
 	// Also, after we generate a small interval by bisection above, false
 	// position will do a large step from an interval of width ~1e-4 to ~1e-14
-	// in one step (a=10, x=0.05, but similiar for other values).
+	// in one step (a=10, x=0.05, but similar for other values).
 	result, bestX, _, errEst := falsePosition(lo, hi, flo, fhi, 2*machEp, 2*machEp, 1e-2*a, gammaInc, params)
 	if result == fSolveMaxIterations && errEst > allowedATol+allowedRTol*math.Abs(bestX) {
 		bestX = math.NaN()

@@ -1,19 +1,14 @@
-// Copyright 2013 The Gonum Authors. All rights reserved.
+// Copyright ©2013 The Gonum Authors. All rights reserved.
 // Use of this code is governed by a BSD-style
 // license that can be found in the LICENSE file
 
-// Package floats provides a set of helper routines for dealing with slices
-// of float64. The functions avoid allocations to allow for use within tight
-// loops without garbage collection overhead.
-//
-// The convention used is that when a slice is being modified in place, it has
-// the name dst.
-package floats // import "gonum.org/v1/gonum/floats"
+package floats
 
 import (
 	"errors"
 	"math"
 	"sort"
+	"strconv"
 
 	"gonum.org/v1/gonum/internal/asm/f64"
 )
@@ -42,9 +37,7 @@ func AddTo(dst, s, t []float64) []float64 {
 
 // AddConst adds the scalar c to all of the values in dst.
 func AddConst(c float64, dst []float64) {
-	for i := range dst {
-		dst[i] += c
-	}
+	f64.AddConst(c, dst)
 }
 
 // AddScaled performs dst = dst + alpha * s.
@@ -89,8 +82,8 @@ func (a argsort) Swap(i, j int) {
 	a.inds[i], a.inds[j] = a.inds[j], a.inds[i]
 }
 
-// Argsort sorts the elements of s while tracking their original order.
-// At the conclusion of Argsort, s will contain the original elements of s
+// Argsort sorts the elements of dst while tracking their original order.
+// At the conclusion of Argsort, dst will contain the original elements of dst
 // but sorted in increasing order, and inds will contain the original position
 // of the elements in the slice such that dst[i] = origDst[inds[i]].
 // It panics if the lengths of dst and inds do not match.
@@ -342,7 +335,6 @@ func EqualLengths(slices ...[]float64) bool {
 // all of the found elements will be returned along with an error.
 // At the return of the function, the input inds will be in an undetermined state.
 func Find(inds []int, f func(float64) bool, s []float64, k int) ([]int, error) {
-
 	// inds is also returned to allow for calling with nil
 
 	// Reslice inds to have zero length
@@ -439,10 +431,13 @@ func MaxIdx(s []float64) int {
 	if len(s) == 0 {
 		panic("floats: zero slice length")
 	}
-	max := s[0]
+	max := math.NaN()
 	var ind int
 	for i, v := range s {
-		if v > max {
+		if math.IsNaN(v) {
+			continue
+		}
+		if v > max || math.IsNaN(max) {
 			max = v
 			ind = i
 		}
@@ -459,10 +454,16 @@ func Min(s []float64) float64 {
 // entries have the maximum value, the first such index is returned. If the slice
 // is empty, MinIdx will panic.
 func MinIdx(s []float64) int {
-	min := s[0]
+	if len(s) == 0 {
+		panic("floats: zero slice length")
+	}
+	min := math.NaN()
 	var ind int
 	for i, v := range s {
-		if v < min {
+		if math.IsNaN(v) {
+			continue
+		}
+		if v < min || math.IsNaN(min) {
 			min = v
 			ind = i
 		}
@@ -495,16 +496,54 @@ func MulTo(dst, s, t []float64) []float64 {
 	return dst
 }
 
-// Nearest returns the index of the element in s
+const (
+	nanBits = 0x7ff8000000000000
+	nanMask = 0xfff8000000000000
+)
+
+// NaNWith returns an IEEE 754 "quiet not-a-number" value with the
+// payload specified in the low 51 bits of payload.
+// The NaN returned by math.NaN has a bit pattern equal to NaNWith(1).
+func NaNWith(payload uint64) float64 {
+	return math.Float64frombits(nanBits | (payload &^ nanMask))
+}
+
+// NaNPayload returns the lowest 51 bits payload of an IEEE 754 "quiet
+// not-a-number". For values of f other than quiet-NaN, NaNPayload
+// returns zero and false.
+func NaNPayload(f float64) (payload uint64, ok bool) {
+	b := math.Float64bits(f)
+	if b&nanBits != nanBits {
+		return 0, false
+	}
+	return b &^ nanMask, true
+}
+
+// NearestIdx returns the index of the element in s
 // whose value is nearest to v.  If several such
 // elements exist, the lowest index is returned.
-// Panics if len(s) == 0.
-func Nearest(s []float64, v float64) int {
+// NearestIdx panics if len(s) == 0.
+func NearestIdx(s []float64, v float64) int {
+	if len(s) == 0 {
+		panic("floats: zero length slice")
+	}
+	switch {
+	case math.IsNaN(v):
+		return 0
+	case math.IsInf(v, 1):
+		return MaxIdx(s)
+	case math.IsInf(v, -1):
+		return MinIdx(s)
+	}
 	var ind int
-	dist := math.Abs(v - s[0])
+	dist := math.NaN()
 	for i, val := range s {
 		newDist := math.Abs(v - val)
-		if newDist < dist {
+		// A NaN distance will not be closer.
+		if math.IsNaN(newDist) {
+			continue
+		}
+		if newDist < dist || math.IsNaN(dist) {
 			dist = newDist
 			ind = i
 		}
@@ -512,17 +551,84 @@ func Nearest(s []float64, v float64) int {
 	return ind
 }
 
-// NearestWithinSpan return the index of a hypothetical vector created
+// NearestIdxForSpan return the index of a hypothetical vector created
 // by Span with length n and bounds l and u whose value is closest
-// to v. NearestWithinSpan panics if u < l. If the value is greater than u or
-// less than l, the function returns -1.
-func NearestWithinSpan(n int, l, u float64, v float64) int {
-	if u < l {
-		panic("floats: upper bound greater than lower bound")
+// to v. That is, NearestIdxForSpan(n, l, u, v) is equivalent to
+// Nearest(Span(make([]float64, n),l,u),v) without an allocation.
+// NearestIdxForSpan panics if n is less than two.
+func NearestIdxForSpan(n int, l, u float64, v float64) int {
+	if n <= 1 {
+		panic("floats: span must have length >1")
 	}
-	if v < l || v > u {
-		return -1
+	if math.IsNaN(v) {
+		return 0
 	}
+
+	// Special cases for Inf and NaN.
+	switch {
+	case math.IsNaN(l) && !math.IsNaN(u):
+		return n - 1
+	case math.IsNaN(u):
+		return 0
+	case math.IsInf(l, 0) && math.IsInf(u, 0):
+		if l == u {
+			return 0
+		}
+		if n%2 == 1 {
+			if !math.IsInf(v, 0) {
+				return n / 2
+			}
+			if math.Copysign(1, v) == math.Copysign(1, l) {
+				return 0
+			}
+			return n/2 + 1
+		}
+		if math.Copysign(1, v) == math.Copysign(1, l) {
+			return 0
+		}
+		return n / 2
+	case math.IsInf(l, 0):
+		if v == l {
+			return 0
+		}
+		return n - 1
+	case math.IsInf(u, 0):
+		if v == u {
+			return n - 1
+		}
+		return 0
+	case math.IsInf(v, -1):
+		if l <= u {
+			return 0
+		}
+		return n - 1
+	case math.IsInf(v, 1):
+		if u <= l {
+			return 0
+		}
+		return n - 1
+	}
+
+	// Special cases for v outside (l, u) and (u, l).
+	switch {
+	case l < u:
+		if v <= l {
+			return 0
+		}
+		if v >= u {
+			return n - 1
+		}
+	case l > u:
+		if v >= l {
+			return 0
+		}
+		if v <= u {
+			return n - 1
+		}
+	default:
+		return 0
+	}
+
 	// Can't guarantee anything about exactly halfway between
 	// because of floating point weirdness.
 	return int((float64(n)-1)/(u-l)*(v-l) + 0.5)
@@ -565,6 +671,19 @@ func Norm(s []float64, L float64) float64 {
 		norm += math.Pow(math.Abs(val), L)
 	}
 	return math.Pow(norm, 1/L)
+}
+
+// ParseWithNA converts the string s to a float64 in v.
+// If s equals missing, w is returned as 0, otherwise 1.
+func ParseWithNA(s, missing string) (v, w float64, err error) {
+	if s == missing {
+		return 0, 0, nil
+	}
+	v, err = strconv.ParseFloat(s, 64)
+	if err == nil {
+		w = 1
+	}
+	return v, w, err
 }
 
 // Prod returns the product of the elements of the slice.
@@ -676,7 +795,7 @@ func Same(s, t []float64) bool {
 	}
 	for i, v := range s {
 		w := t[i]
-		if v != w && !math.IsNaN(v) && !math.IsNaN(w) {
+		if v != w && !(math.IsNaN(v) && math.IsNaN(w)) {
 			return false
 		}
 	}
@@ -693,9 +812,11 @@ func Scale(c float64, dst []float64) {
 // Span returns a set of N equally spaced points between l and u, where N
 // is equal to the length of the destination. The first element of the destination
 // is l, the final element of the destination is u.
+//
 // Panics if len(dst) < 2.
 //
-// Also returns the mutated slice dst, so that it can be used in range expressions, like:
+// Span also returns the mutated slice dst, so that it can be used in range expressions,
+// like:
 //
 //     for i, x := range Span(dst, l, u) { ... }
 func Span(dst []float64, l, u float64) []float64 {
@@ -703,6 +824,48 @@ func Span(dst []float64, l, u float64) []float64 {
 	if n < 2 {
 		panic("floats: destination must have length >1")
 	}
+
+	// Special cases for Inf and NaN.
+	switch {
+	case math.IsNaN(l):
+		for i := range dst[:len(dst)-1] {
+			dst[i] = math.NaN()
+		}
+		dst[len(dst)-1] = u
+		return dst
+	case math.IsNaN(u):
+		for i := range dst[1:] {
+			dst[i+1] = math.NaN()
+		}
+		dst[0] = l
+		return dst
+	case math.IsInf(l, 0) && math.IsInf(u, 0):
+		for i := range dst[:len(dst)/2] {
+			dst[i] = l
+			dst[len(dst)-i-1] = u
+		}
+		if len(dst)%2 == 1 {
+			if l != u {
+				dst[len(dst)/2] = 0
+			} else {
+				dst[len(dst)/2] = l
+			}
+		}
+		return dst
+	case math.IsInf(l, 0):
+		for i := range dst[:len(dst)-1] {
+			dst[i] = l
+		}
+		dst[len(dst)-1] = u
+		return dst
+	case math.IsInf(u, 0):
+		for i := range dst[1:] {
+			dst[i+1] = u
+		}
+		dst[0] = l
+		return dst
+	}
+
 	step := (u - l) / float64(n-1)
 	for i := range dst {
 		dst[i] = l + step*float64(i)

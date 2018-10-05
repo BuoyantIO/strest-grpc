@@ -1,4 +1,4 @@
-// Copyright ©2015 The gonum Authors. All rights reserved.
+// Copyright ©2015 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -67,6 +67,9 @@ type NelderMead struct {
 	Shrink          float64 // Shrink parameter (>0, <1)
 	SimplexSize     float64 // size of auto-constructed initial simplex
 
+	status Status
+	err    error
+
 	reflection  float64
 	expansion   float64
 	contraction float64
@@ -82,7 +85,23 @@ type NelderMead struct {
 	reflectedValue float64    // Value at the last reflection point
 }
 
-func (n *NelderMead) Init(loc *Location) (Operation, error) {
+func (n *NelderMead) Status() (Status, error) {
+	return n.status, n.err
+}
+
+func (n *NelderMead) Init(dim, tasks int) int {
+	n.status = NotTerminated
+	n.err = nil
+	return 1
+}
+
+func (n *NelderMead) Run(operation chan<- Task, result <-chan Task, tasks []Task) {
+	n.status, n.err = localOptimizer{}.run(n, operation, result, tasks)
+	close(operation)
+	return
+}
+
+func (n *NelderMead) initLocal(loc *Location) (Operation, error) {
 	dim := len(loc.X)
 	if cap(n.vertices) < dim+1 {
 		n.vertices = make([][]float64, dim+1)
@@ -108,14 +127,23 @@ func (n *NelderMead) Init(loc *Location) (Operation, error) {
 	n.expansion = n.Expansion
 	if n.expansion == 0 {
 		n.expansion = 1 + 2/float64(dim)
+		if dim == 1 {
+			n.expansion = 2
+		}
 	}
 	n.contraction = n.Contraction
 	if n.contraction == 0 {
 		n.contraction = 0.75 - 1/(2*float64(dim))
+		if dim == 1 {
+			n.contraction = 0.5
+		}
 	}
 	n.shrink = n.Shrink
 	if n.shrink == 0 {
 		n.shrink = 1 - 1/float64(dim)
+		if dim == 1 {
+			n.shrink = 0.5
+		}
 	}
 
 	if n.InitialVertices != nil {
@@ -166,7 +194,7 @@ func computeCentroid(vertices [][]float64, centroid []float64) {
 	}
 }
 
-func (n *NelderMead) Iterate(loc *Location) (Operation, error) {
+func (n *NelderMead) iterateLocal(loc *Location) (Operation, error) {
 	dim := len(loc.X)
 	switch n.lastIter {
 	case nmInitialize:

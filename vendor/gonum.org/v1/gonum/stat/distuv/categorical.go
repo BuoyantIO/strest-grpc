@@ -1,4 +1,4 @@
-// Copyright ©2015 The gonum Authors. All rights reserved.
+// Copyright ©2015 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -6,10 +6,11 @@ package distuv
 
 import (
 	"math"
-	"math/rand"
+
+	"golang.org/x/exp/rand"
 )
 
-// Categorical is an extension of the Bernouilli distribution where x takes
+// Categorical is an extension of the Bernoulli distribution where x takes
 // values {0, 1, ..., len(w)-1} where w is the weight vector. Categorical must
 // be initialized with NewCategorical.
 type Categorical struct {
@@ -32,13 +33,13 @@ type Categorical struct {
 	// explanation of the layout of a heap.
 	heap []float64
 
-	src *rand.Rand
+	src rand.Source
 }
 
 // NewCategorical constructs a new categorical distribution where the probability
 // that x equals i is proportional to w[i]. All of the weights must be
 // nonnegative, and at least one of the weights must be positive.
-func NewCategorical(w []float64, src *rand.Rand) Categorical {
+func NewCategorical(w []float64, src rand.Source) Categorical {
 	c := Categorical{
 		weights: make([]float64, len(w)),
 		heap:    make([]float64, len(w)),
@@ -111,7 +112,7 @@ func (c Categorical) Rand() float64 {
 	if c.src == nil {
 		r = c.heap[0] * rand.Float64()
 	} else {
-		r = c.heap[0] * c.src.Float64()
+		r = c.heap[0] * rand.New(c.src).Float64()
 	}
 	i := 1
 	last := -1

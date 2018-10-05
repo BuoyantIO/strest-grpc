@@ -1,4 +1,4 @@
-// Copyright ©2014 The gonum Authors. All rights reserved.
+// Copyright ©2014 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -27,6 +27,9 @@ type LBFGS struct {
 	// If Store is 0, it will be defaulted to 15.
 	Store int
 
+	status Status
+	err    error
+
 	ls *LinesearchMethod
 
 	dim  int       // Dimension of the problem
@@ -41,7 +44,23 @@ type LBFGS struct {
 	a      []float64   // Cache of Hessian updates
 }
 
-func (l *LBFGS) Init(loc *Location) (Operation, error) {
+func (l *LBFGS) Status() (Status, error) {
+	return l.status, l.err
+}
+
+func (l *LBFGS) Init(dim, tasks int) int {
+	l.status = NotTerminated
+	l.err = nil
+	return 1
+}
+
+func (l *LBFGS) Run(operation chan<- Task, result <-chan Task, tasks []Task) {
+	l.status, l.err = localOptimizer{}.run(l, operation, result, tasks)
+	close(operation)
+	return
+}
+
+func (l *LBFGS) initLocal(loc *Location) (Operation, error) {
 	if l.Linesearcher == nil {
 		l.Linesearcher = &Bisection{}
 	}
@@ -58,7 +77,7 @@ func (l *LBFGS) Init(loc *Location) (Operation, error) {
 	return l.ls.Init(loc)
 }
 
-func (l *LBFGS) Iterate(loc *Location) (Operation, error) {
+func (l *LBFGS) iterateLocal(loc *Location) (Operation, error) {
 	return l.ls.Iterate(loc)
 }
 

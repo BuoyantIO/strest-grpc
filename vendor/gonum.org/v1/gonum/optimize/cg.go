@@ -1,3 +1,7 @@
+// Copyright ©2014 The Gonum Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package optimize
 
 import (
@@ -86,6 +90,9 @@ type CG struct {
 
 	ls *LinesearchMethod
 
+	status Status
+	err    error
+
 	restartAfter    int
 	iterFromRestart int
 
@@ -94,7 +101,23 @@ type CG struct {
 	gradPrevNorm float64
 }
 
-func (cg *CG) Init(loc *Location) (Operation, error) {
+func (cg *CG) Status() (Status, error) {
+	return cg.status, cg.err
+}
+
+func (cg *CG) Init(dim, tasks int) int {
+	cg.status = NotTerminated
+	cg.err = nil
+	return 1
+}
+
+func (cg *CG) Run(operation chan<- Task, result <-chan Task, tasks []Task) {
+	cg.status, cg.err = localOptimizer{}.run(cg, operation, result, tasks)
+	close(operation)
+	return
+}
+
+func (cg *CG) initLocal(loc *Location) (Operation, error) {
 	if cg.IterationRestartFactor < 0 {
 		panic("cg: IterationRestartFactor is negative")
 	}
@@ -128,7 +151,7 @@ func (cg *CG) Init(loc *Location) (Operation, error) {
 	return cg.ls.Init(loc)
 }
 
-func (cg *CG) Iterate(loc *Location) (Operation, error) {
+func (cg *CG) iterateLocal(loc *Location) (Operation, error) {
 	return cg.ls.Iterate(loc)
 }
 

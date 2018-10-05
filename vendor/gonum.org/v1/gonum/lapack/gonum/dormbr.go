@@ -1,4 +1,4 @@
-// Copyright ©2015 The gonum Authors. All rights reserved.
+// Copyright ©2015 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -44,7 +44,7 @@ import (
 // returns it in work[0].
 //
 // Dormbr is an internal routine. It is exported for testing purposes.
-func (impl Implementation) Dormbr(vect lapack.DecompUpdate, side blas.Side, trans blas.Transpose, m, n, k int, a []float64, lda int, tau, c []float64, ldc int, work []float64, lwork int) {
+func (impl Implementation) Dormbr(vect lapack.ApplyOrtho, side blas.Side, trans blas.Transpose, m, n, k int, a []float64, lda int, tau, c []float64, ldc int, work []float64, lwork int) {
 	if side != blas.Left && side != blas.Right {
 		panic(badSide)
 	}
@@ -52,7 +52,7 @@ func (impl Implementation) Dormbr(vect lapack.DecompUpdate, side blas.Side, tran
 		panic(badTrans)
 	}
 	if vect != lapack.ApplyP && vect != lapack.ApplyQ {
-		panic(badDecompUpdate)
+		panic(badApplyOrtho)
 	}
 	nq := n
 	nw := m

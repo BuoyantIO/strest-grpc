@@ -1,4 +1,4 @@
-// Copyright ©2015 The gonum Authors. All rights reserved.
+// Copyright ©2015 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -6,10 +6,11 @@ package distmv
 
 import (
 	"math"
-	"math/rand"
+
+	"golang.org/x/exp/rand"
 
 	"gonum.org/v1/gonum/floats"
-	"gonum.org/v1/gonum/matrix/mat64"
+	"gonum.org/v1/gonum/mat"
 	"gonum.org/v1/gonum/stat"
 	"gonum.org/v1/gonum/stat/distuv"
 )
@@ -26,20 +27,21 @@ var (
 type Normal struct {
 	mu []float64
 
-	sigma mat64.SymDense
+	sigma mat.SymDense
 
-	chol       mat64.Cholesky
-	lower      mat64.TriDense
+	chol       mat.Cholesky
 	logSqrtDet float64
 	dim        int
 
-	src *rand.Rand
+	// If src is altered, rnd must be updated.
+	src rand.Source
+	rnd *rand.Rand
 }
 
 // NewNormal creates a new Normal with the given mean and covariance matrix.
 // NewNormal panics if len(mu) == 0, or if len(mu) != sigma.N. If the covariance
 // matrix is not positive-definite, the returned boolean is false.
-func NewNormal(mu []float64, sigma mat64.Symmetric, src *rand.Rand) (*Normal, bool) {
+func NewNormal(mu []float64, sigma mat.Symmetric, src rand.Source) (*Normal, bool) {
 	if len(mu) == 0 {
 		panic(badZeroDimension)
 	}
@@ -49,6 +51,7 @@ func NewNormal(mu []float64, sigma mat64.Symmetric, src *rand.Rand) (*Normal, bo
 	}
 	n := &Normal{
 		src: src,
+		rnd: rand.New(src),
 		dim: dim,
 		mu:  make([]float64, dim),
 	}
@@ -57,9 +60,8 @@ func NewNormal(mu []float64, sigma mat64.Symmetric, src *rand.Rand) (*Normal, bo
 	if !ok {
 		return nil, false
 	}
-	n.sigma = *mat64.NewSymDense(dim, nil)
+	n.sigma = *mat.NewSymDense(dim, nil)
 	n.sigma.CopySym(sigma)
-	n.lower.LFromCholesky(&n.chol)
 	n.logSqrtDet = 0.5 * n.chol.LogDet()
 	return n, true
 }
@@ -67,19 +69,19 @@ func NewNormal(mu []float64, sigma mat64.Symmetric, src *rand.Rand) (*Normal, bo
 // NewNormalChol creates a new Normal distribution with the given mean and
 // covariance matrix represented by its Cholesky decomposition. NewNormalChol
 // panics if len(mu) is not equal to chol.Size().
-func NewNormalChol(mu []float64, chol *mat64.Cholesky, src *rand.Rand) *Normal {
+func NewNormalChol(mu []float64, chol *mat.Cholesky, src rand.Source) *Normal {
 	dim := len(mu)
 	if dim != chol.Size() {
 		panic(badSizeMismatch)
 	}
 	n := &Normal{
 		src: src,
+		rnd: rand.New(src),
 		dim: dim,
 		mu:  make([]float64, dim),
 	}
 	n.chol.Clone(chol)
 	copy(n.mu, mu)
-	n.lower.LFromCholesky(chol)
 	n.logSqrtDet = 0.5 * n.chol.LogDet()
 	return n
 }
@@ -89,7 +91,7 @@ func NewNormalChol(mu []float64, chol *mat64.Cholesky, src *rand.Rand) *Normal {
 // panics if len(mu) is not equal to prec.Symmetric(). If the precision matrix
 // is not positive-definite, NewNormalPrecision returns nil for norm and false
 // for ok.
-func NewNormalPrecision(mu []float64, prec *mat64.SymDense, src *rand.Rand) (norm *Normal, ok bool) {
+func NewNormalPrecision(mu []float64, prec *mat.SymDense, src rand.Source) (norm *Normal, ok bool) {
 	if len(mu) == 0 {
 		panic(badZeroDimension)
 	}
@@ -102,13 +104,13 @@ func NewNormalPrecision(mu []float64, prec *mat64.SymDense, src *rand.Rand) (nor
 	// is much better, but this still loses precision. It is worth considering if
 	// instead the precision matrix should be stored explicitly and used instead
 	// of the Cholesky decomposition of the covariance matrix where appropriate.
-	var chol mat64.Cholesky
+	var chol mat.Cholesky
 	ok = chol.Factorize(prec)
 	if !ok {
 		return nil, false
 	}
-	var sigma mat64.SymDense
-	sigma.InverseCholesky(&chol)
+	var sigma mat.SymDense
+	chol.InverseTo(&sigma)
 	return NewNormal(mu, &sigma, src)
 }
 
@@ -128,7 +130,7 @@ func NewNormalPrecision(mu []float64, prec *mat64.SymDense, src *rand.Rand) (nor
 //
 // ConditionNormal returns {nil, false} if there is a failure during the update.
 // Mathematically this is impossible, but can occur with finite precision arithmetic.
-func (n *Normal) ConditionNormal(observed []int, values []float64, src *rand.Rand) (*Normal, bool) {
+func (n *Normal) ConditionNormal(observed []int, values []float64, src rand.Source) (*Normal, bool) {
 	if len(observed) == 0 {
 		panic("normal: no observed value")
 	}
@@ -154,9 +156,9 @@ func (n *Normal) ConditionNormal(observed []int, values []float64, src *rand.Ran
 //  covariance(i, j) = E[(x_i - E[x_i])(x_j - E[x_j])]
 // If the input matrix is nil a new matrix is allocated, otherwise the result
 // is stored in-place into the input.
-func (n *Normal) CovarianceMatrix(s *mat64.SymDense) *mat64.SymDense {
+func (n *Normal) CovarianceMatrix(s *mat.SymDense) *mat.SymDense {
 	if s == nil {
-		s = mat64.NewSymDense(n.Dim(), nil)
+		s = mat.NewSymDense(n.Dim(), nil)
 	}
 	sn := s.Symmetric()
 	if sn != n.Dim() {
@@ -182,8 +184,33 @@ func (n *Normal) LogProb(x []float64) float64 {
 	if len(x) != dim {
 		panic(badSizeMismatch)
 	}
-	c := -0.5*float64(dim)*logTwoPi - n.logSqrtDet
-	dst := stat.Mahalanobis(mat64.NewVector(dim, x), mat64.NewVector(dim, n.mu), &n.chol)
+	return normalLogProb(x, n.mu, &n.chol, n.logSqrtDet)
+}
+
+// NormalLogProb computes the log probability of the location x for a Normal
+// distribution the given mean and Cholesky decomposition of the covariance matrix.
+// NormalLogProb panics if len(x) is not equal to len(mu), or if len(mu) != chol.Size().
+//
+// This function saves time and memory if the Cholesky decomposition is already
+// available. Otherwise, the NewNormal function should be used.
+func NormalLogProb(x, mu []float64, chol *mat.Cholesky) float64 {
+	dim := len(mu)
+	if len(x) != dim {
+		panic(badSizeMismatch)
+	}
+	if chol.Size() != dim {
+		panic(badSizeMismatch)
+	}
+	logSqrtDet := 0.5 * chol.LogDet()
+	return normalLogProb(x, mu, chol, logSqrtDet)
+}
+
+// normalLogProb is the same as NormalLogProb, but does not make size checks and
+// additionally requires log(|Σ|^-0.5)
+func normalLogProb(x, mu []float64, chol *mat.Cholesky, logSqrtDet float64) float64 {
+	dim := len(mu)
+	c := -0.5*float64(dim)*logTwoPi - logSqrtDet
+	dst := stat.Mahalanobis(mat.NewVecDense(dim, x), mat.NewVecDense(dim, mu), chol)
 	return c - 0.5*dst*dst
 }
 
@@ -194,12 +221,12 @@ func (n *Normal) LogProb(x []float64) float64 {
 // See https://en.wikipedia.org/wiki/Marginal_distribution for more information.
 //
 // The input src is passed to the call to NewNormal.
-func (n *Normal) MarginalNormal(vars []int, src *rand.Rand) (*Normal, bool) {
+func (n *Normal) MarginalNormal(vars []int, src rand.Source) (*Normal, bool) {
 	newMean := make([]float64, len(vars))
 	for i, v := range vars {
 		newMean[i] = n.mu[v]
 	}
-	var s mat64.SymDense
+	var s mat.SymDense
 	s.SubsetSym(&n.sigma, vars)
 	return NewNormal(newMean, &s, src)
 }
@@ -211,11 +238,11 @@ func (n *Normal) MarginalNormal(vars []int, src *rand.Rand) (*Normal, bool) {
 // See https://en.wikipedia.org/wiki/Marginal_distribution for more information.
 //
 // The input src is passed to the constructed distuv.Normal.
-func (n *Normal) MarginalNormalSingle(i int, src *rand.Rand) distuv.Normal {
+func (n *Normal) MarginalNormalSingle(i int, src rand.Source) distuv.Normal {
 	return distuv.Normal{
-		Mu:     n.mu[i],
-		Sigma:  math.Sqrt(n.sigma.At(i, i)),
-		Source: src,
+		Mu:    n.mu[i],
+		Sigma: math.Sqrt(n.sigma.At(i, i)),
+		Src:   src,
 	}
 }
 
@@ -262,19 +289,63 @@ func (n *Normal) Quantile(x, p []float64) []float64 {
 // If the input slice is nil, new memory is allocated, otherwise the result is stored
 // in place.
 func (n *Normal) Rand(x []float64) []float64 {
-	x = reuseAs(x, n.dim)
-	tmp := make([]float64, n.dim)
-	if n.src == nil {
+	return NormalRand(x, n.mu, &n.chol, n.src)
+}
+
+// NormalRand generates a random number with the given mean and Cholesky
+// decomposition of the covariance matrix.
+// If x is nil, new memory is allocated and returned, otherwise the result is stored
+// in place into x. NormalRand panics if x is non-nil and not equal to len(mu),
+// or if len(mu) != chol.Size().
+//
+// This function saves time and memory if the Cholesky decomposition is already
+// available. Otherwise, the NewNormal function should be used.
+func NormalRand(x, mean []float64, chol *mat.Cholesky, src rand.Source) []float64 {
+	x = reuseAs(x, len(mean))
+	if len(mean) != chol.Size() {
+		panic(badInputLength)
+	}
+	if src == nil {
 		for i := range x {
-			tmp[i] = rand.NormFloat64()
+			x[i] = rand.NormFloat64()
 		}
 	} else {
+		rnd := rand.New(src)
 		for i := range x {
-			tmp[i] = n.src.NormFloat64()
+			x[i] = rnd.NormFloat64()
 		}
 	}
-	n.transformNormal(x, tmp)
+	transformNormal(x, x, mean, chol)
 	return x
+}
+
+// ScoreInput returns the gradient of the log-probability with respect to the
+// input x. That is, ScoreInput computes
+//  ∇_x log(p(x))
+// If score is nil, a new slice will be allocated and returned. If score is of
+// length the dimension of Normal, then the result will be put in-place into score.
+// If neither of these is true, ScoreInput will panic.
+func (n *Normal) ScoreInput(score, x []float64) []float64 {
+	// Normal log probability is
+	//  c - 0.5*(x-μ)' Σ^-1 (x-μ).
+	// So the derivative is just
+	//  -Σ^-1 (x-μ).
+	if len(x) != n.Dim() {
+		panic(badInputLength)
+	}
+	if score == nil {
+		score = make([]float64, len(x))
+	}
+	if len(score) != len(x) {
+		panic(badSizeMismatch)
+	}
+	tmp := make([]float64, len(x))
+	copy(tmp, x)
+	floats.Sub(tmp, n.mu)
+
+	n.chol.SolveVec(mat.NewVecDense(len(score), score), mat.NewVecDense(len(tmp), tmp))
+	floats.Scale(-1, score)
+	return score
 }
 
 // SetMean changes the mean of the normal distribution. SetMean panics if len(mu)
@@ -301,16 +372,22 @@ func (n *Normal) TransformNormal(dst, normal []float64) []float64 {
 	if len(dst) != len(normal) {
 		panic(badInputLength)
 	}
-	n.transformNormal(dst, normal)
+	transformNormal(dst, normal, n.mu, &n.chol)
 	return dst
 }
 
-// transformNormal performs the same operation as TransformNormal except no
-// safety checks are performed and both input slices must be non-nil.
-func (n *Normal) transformNormal(dst, normal []float64) []float64 {
-	srcVec := mat64.NewVector(n.dim, normal)
-	dstVec := mat64.NewVector(n.dim, dst)
-	dstVec.MulVec(&n.lower, srcVec)
-	floats.Add(dst, n.mu)
+// transformNormal performs the same operation as Normal.TransformNormal except
+// no safety checks are performed and all memory must be provided.
+func transformNormal(dst, normal, mu []float64, chol *mat.Cholesky) []float64 {
+	dim := len(mu)
+	dstVec := mat.NewVecDense(dim, dst)
+	srcVec := mat.NewVecDense(dim, normal)
+	// If dst and normal are the same slice, make them the same Vector otherwise
+	// mat complains about being tricky.
+	if &normal[0] == &dst[0] {
+		srcVec = dstVec
+	}
+	dstVec.MulVec(chol.RawU().T(), srcVec)
+	floats.Add(dst, mu)
 	return dst
 }

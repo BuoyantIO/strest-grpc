@@ -1,4 +1,4 @@
-// Copyright ©2016 The gonum Authors. All rights reserved.
+// Copyright ©2016 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package optimize
 
 import (
 	"math"
-	"sync"
 
 	"gonum.org/v1/gonum/stat/distmv"
 )
@@ -16,9 +15,6 @@ import (
 type GuessAndCheck struct {
 	Rander distmv.Rander
 
-	eval []bool
-
-	mux   *sync.Mutex
 	bestF float64
 	bestX []float64
 }
@@ -27,34 +23,68 @@ func (g *GuessAndCheck) Needs() struct{ Gradient, Hessian bool } {
 	return struct{ Gradient, Hessian bool }{false, false}
 }
 
-func (g *GuessAndCheck) Done() {
-	// No cleanup needed
-}
-
-func (g *GuessAndCheck) InitGlobal(dim, tasks int) int {
-	g.eval = make([]bool, tasks)
+func (g *GuessAndCheck) Init(dim, tasks int) int {
+	if dim <= 0 {
+		panic(nonpositiveDimension)
+	}
+	if tasks < 0 {
+		panic(negativeTasks)
+	}
 	g.bestF = math.Inf(1)
 	g.bestX = resize(g.bestX, dim)
-	g.mux = &sync.Mutex{}
 	return tasks
 }
 
-func (g *GuessAndCheck) IterateGlobal(task int, loc *Location) (Operation, error) {
-	// Task is true if it contains a new function evaluation.
-	if g.eval[task] {
-		g.eval[task] = false
-		g.mux.Lock()
-		if loc.F < g.bestF {
-			g.bestF = loc.F
-			copy(g.bestX, loc.X)
-		} else {
-			loc.F = g.bestF
-			copy(loc.X, g.bestX)
-		}
-		g.mux.Unlock()
-		return MajorIteration, nil
+func (g *GuessAndCheck) sendNewLoc(operation chan<- Task, task Task) {
+	g.Rander.Rand(task.X)
+	task.Op = FuncEvaluation
+	operation <- task
+}
+
+func (g *GuessAndCheck) updateMajor(operation chan<- Task, task Task) {
+	// Update the best value seen so far, and send a MajorIteration.
+	if task.F < g.bestF {
+		g.bestF = task.F
+		copy(g.bestX, task.X)
+	} else {
+		task.F = g.bestF
+		copy(task.X, g.bestX)
 	}
-	g.eval[task] = true
-	g.Rander.Rand(loc.X)
-	return FuncEvaluation, nil
+	task.Op = MajorIteration
+	operation <- task
+}
+
+func (g *GuessAndCheck) Run(operation chan<- Task, result <-chan Task, tasks []Task) {
+	// Send initial tasks to evaluate
+	for _, task := range tasks {
+		g.sendNewLoc(operation, task)
+	}
+
+	// Read from the channel until PostIteration is sent.
+Loop:
+	for {
+		task := <-result
+		switch task.Op {
+		default:
+			panic("unknown operation")
+		case PostIteration:
+			break Loop
+		case MajorIteration:
+			g.sendNewLoc(operation, task)
+		case FuncEvaluation:
+			g.updateMajor(operation, task)
+		}
+	}
+
+	// PostIteration was sent. Update the best new values.
+	for task := range result {
+		switch task.Op {
+		default:
+			panic("unknown operation")
+		case MajorIteration:
+		case FuncEvaluation:
+			g.updateMajor(operation, task)
+		}
+	}
+	close(operation)
 }

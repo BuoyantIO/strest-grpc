@@ -1,4 +1,4 @@
-// Copyright ©2016 The gonum Authors. All rights reserved.
+// Copyright ©2016 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -9,8 +9,7 @@ import (
 	"math"
 
 	"gonum.org/v1/gonum/floats"
-	"gonum.org/v1/gonum/matrix"
-	"gonum.org/v1/gonum/matrix/mat64"
+	"gonum.org/v1/gonum/mat"
 )
 
 // PC is a type for computing and extracting the principal components of a
@@ -19,7 +18,7 @@ import (
 type PC struct {
 	n, d    int
 	weights []float64
-	svd     *mat64.SVD
+	svd     *mat.SVD
 	ok      bool
 }
 
@@ -34,7 +33,7 @@ type PC struct {
 // must match the number of observations or PrincipalComponents will panic.
 //
 // PrincipalComponents returns whether the analysis was successful.
-func (c *PC) PrincipalComponents(a mat64.Matrix, weights []float64) (ok bool) {
+func (c *PC) PrincipalComponents(a mat.Matrix, weights []float64) (ok bool) {
 	c.n, c.d = a.Dims()
 	if weights != nil && len(weights) != c.n {
 		panic("stat: len(weights) != observations")
@@ -47,31 +46,31 @@ func (c *PC) PrincipalComponents(a mat64.Matrix, weights []float64) (ok bool) {
 	return c.ok
 }
 
-// Vectors returns the component direction vectors of a principal components
+// VectorsTo returns the component direction vectors of a principal components
 // analysis. The vectors are returned in the columns of a d×min(n, d) matrix.
 // If dst is not nil it must either be zero-sized or be a d×min(n, d) matrix.
 // dst will  be used as the destination for the direction vector data. If dst
-// is nil, a new mat64.Dense is allocated for the destination.
-func (c *PC) Vectors(dst *mat64.Dense) *mat64.Dense {
+// is nil, a new mat.Dense is allocated for the destination.
+func (c *PC) VectorsTo(dst *mat.Dense) *mat.Dense {
 	if !c.ok {
 		panic("stat: use of unsuccessful principal components analysis")
 	}
 
 	if dst != nil {
-		if d, n := dst.Dims(); (n != 0 || d != 0) && (d != c.d || n != min(c.n, c.d)) {
-			panic(matrix.ErrShape)
+		if d, n := dst.Dims(); !dst.IsZero() && (d != c.d || n != min(c.n, c.d)) {
+			panic(mat.ErrShape)
 		}
 	}
 	return c.svd.VTo(dst)
 }
 
-// Vars returns the column variances of the principal component scores,
+// VarsTo returns the column variances of the principal component scores,
 // b * vecs, where b is a matrix with centered columns. Variances are returned
 // in descending order.
 // If dst is not nil it is used to store the variances and returned.
 // Vars will panic if the receiver has not successfully performed a principal
 // components analysis or dst is not nil and the length of dst is not min(n, d).
-func (c *PC) Vars(dst []float64) []float64 {
+func (c *PC) VarsTo(dst []float64) []float64 {
 	if !c.ok {
 		panic("stat: use of unsuccessful principal components analysis")
 	}
@@ -110,7 +109,7 @@ type CC struct {
 	// xd and yd are used for size checks.
 	xd, yd int
 
-	x, y, c *mat64.SVD
+	x, y, c *mat.SVD
 	ok      bool
 }
 
@@ -162,7 +161,7 @@ type CC struct {
 // or in Chapter 3 of
 // Koch, Inge. Analysis of multivariate and high-dimensional data.
 // Vol. 32. Cambridge University Press, 2013. ISBN: 9780521887939
-func (c *CC) CanonicalCorrelations(x, y mat64.Matrix, weights []float64) error {
+func (c *CC) CanonicalCorrelations(x, y mat.Matrix, weights []float64) error {
 	var yn int
 	c.n, c.xd = x.Dims()
 	yn, c.yd = y.Dims()
@@ -188,22 +187,22 @@ func (c *CC) CanonicalCorrelations(x, y mat64.Matrix, weights []float64) error {
 	yv := c.y.VTo(nil)
 
 	// Calculate and factorise the canonical correlation matrix.
-	var ccor mat64.Dense
+	var ccor mat.Dense
 	ccor.Product(xv, xu.T(), yu, yv.T())
 	if c.c == nil {
-		c.c = &mat64.SVD{}
+		c.c = &mat.SVD{}
 	}
-	c.ok = c.c.Factorize(&ccor, matrix.SVDThin)
+	c.ok = c.c.Factorize(&ccor, mat.SVDThin)
 	if !c.ok {
 		return errors.New("stat: failed to factorize ccor")
 	}
 	return nil
 }
 
-// Corrs returns the canonical correlations, using dst if it is not nil.
+// CorrsTo returns the canonical correlations, using dst if it is not nil.
 // If dst is not nil and len(dst) does not match the number of columns in
 // the y input matrix, Corrs will panic.
-func (c *CC) Corrs(dst []float64) []float64 {
+func (c *CC) CorrsTo(dst []float64) []float64 {
 	if !c.ok {
 		panic("stat: canonical correlations missing or invalid")
 	}
@@ -214,21 +213,21 @@ func (c *CC) Corrs(dst []float64) []float64 {
 	return c.c.Values(dst)
 }
 
-// Left returns the left eigenvectors of the canonical correlation matrix if
+// LeftTo returns the left eigenvectors of the canonical correlation matrix if
 // spheredSpace is true. If spheredSpace is false it returns these eigenvectors
 // back-transformed to the original data space.
 // If dst is not nil it must either be zero-sized or be an xd×yd matrix where xd
 // and yd are the number of variables in the input x and y matrices. dst will
 // be used as the destination for the vector data. If dst is nil, a new
-// mat64.Dense is allocated for the destination.
-func (c *CC) Left(dst *mat64.Dense, spheredSpace bool) *mat64.Dense {
+// mat.Dense is allocated for the destination.
+func (c *CC) LeftTo(dst *mat.Dense, spheredSpace bool) *mat.Dense {
 	if !c.ok || c.n < 2 {
 		panic("stat: canonical correlations missing or invalid")
 	}
 
 	if dst != nil {
-		if d, n := dst.Dims(); (n != 0 || d != 0) && (n != c.yd || d != c.xd) {
-			panic(matrix.ErrShape)
+		if d, n := dst.Dims(); !dst.IsZero() && (n != c.yd || d != c.xd) {
+			panic(mat.ErrShape)
 		}
 	}
 	dst = c.c.UTo(dst)
@@ -246,21 +245,21 @@ func (c *CC) Left(dst *mat64.Dense, spheredSpace bool) *mat64.Dense {
 	return dst
 }
 
-// Right returns the right eigenvectors of the canonical correlation matrix if
+// RightTo returns the right eigenvectors of the canonical correlation matrix if
 // spheredSpace is true. If spheredSpace is false it returns these eigenvectors
 // back-transformed to the original data space.
 // If dst is not nil it must either be zero-sized or be an yd×yd matrix where yd
 // is the number of variables in the input y matrix. dst will
 // be used as the destination for the vector data. If dst is nil, a new
-// mat64.Dense is allocated for the destination.
-func (c *CC) Right(dst *mat64.Dense, spheredSpace bool) *mat64.Dense {
+// mat.Dense is allocated for the destination.
+func (c *CC) RightTo(dst *mat.Dense, spheredSpace bool) *mat.Dense {
 	if !c.ok || c.n < 2 {
 		panic("stat: canonical correlations missing or invalid")
 	}
 
 	if dst != nil {
 		if d, n := dst.Dims(); (n != 0 || d != 0) && (n != c.yd || d != c.yd) {
-			panic(matrix.ErrShape)
+			panic(mat.ErrShape)
 		}
 	}
 	dst = c.c.VTo(dst)
@@ -278,12 +277,12 @@ func (c *CC) Right(dst *mat64.Dense, spheredSpace bool) *mat64.Dense {
 	return dst
 }
 
-func svdFactorizeCentered(work *mat64.SVD, m mat64.Matrix, weights []float64) (svd *mat64.SVD, ok bool) {
+func svdFactorizeCentered(work *mat.SVD, m mat.Matrix, weights []float64) (svd *mat.SVD, ok bool) {
 	n, d := m.Dims()
-	centered := mat64.NewDense(n, d, nil)
+	centered := mat.NewDense(n, d, nil)
 	col := make([]float64, n)
 	for j := 0; j < d; j++ {
-		mat64.Col(col, j, m)
+		mat.Col(col, j, m)
 		floats.AddConst(-Mean(col, weights), col)
 		centered.SetCol(j, col)
 	}
@@ -291,15 +290,15 @@ func svdFactorizeCentered(work *mat64.SVD, m mat64.Matrix, weights []float64) (s
 		floats.Scale(math.Sqrt(w), centered.RawRowView(i))
 	}
 	if work == nil {
-		work = &mat64.SVD{}
+		work = &mat.SVD{}
 	}
-	ok = work.Factorize(centered, matrix.SVDThin)
+	ok = work.Factorize(centered, mat.SVDThin)
 	return work, ok
 }
 
 // scaleColsReciSqrt scales the columns of cols
 // by the reciprocal square-root of vals.
-func scaleColsReciSqrt(cols *mat64.Dense, vals []float64) {
+func scaleColsReciSqrt(cols *mat.Dense, vals []float64) {
 	if cols == nil {
 		panic("stat: input nil")
 	}
@@ -309,7 +308,7 @@ func scaleColsReciSqrt(cols *mat64.Dense, vals []float64) {
 	}
 	col := make([]float64, n)
 	for j := 0; j < d; j++ {
-		mat64.Col(col, j, cols)
+		mat.Col(col, j, cols)
 		floats.Scale(math.Sqrt(1/vals[j]), col)
 		cols.SetCol(j, col)
 	}

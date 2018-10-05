@@ -1,23 +1,8 @@
-// Copyright ©2015 The gonum Authors. All rights reserved.
+// Copyright ©2015 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package lapack64 provides a set of convenient wrapper functions for LAPACK
-// calls, as specified in the netlib standard (www.netlib.org).
-//
-// The native Go routines are used by default, and the Use function can be used
-// to set an alternative implementation.
-//
-// If the type of matrix (General, Symmetric, etc.) is known and fixed, it is
-// used in the wrapper signature. In many cases, however, the type of the matrix
-// changes during the call to the routine, for example the matrix is symmetric on
-// entry and is triangular on exit. In these cases the correct types should be checked
-// in the documentation.
-//
-// The full set of Lapack functions is very large, and it is not clear that a
-// full implementation is desirable, let alone feasible. Please open up an issue
-// if there is a specific function you need and/or are willing to implement.
-package lapack64 // import "gonum.org/v1/gonum/lapack/lapack64"
+package lapack64
 
 import (
 	"gonum.org/v1/gonum/blas"
@@ -50,6 +35,15 @@ func Potrf(a blas64.Symmetric) (t blas64.Triangular, ok bool) {
 	t.Stride = a.Stride
 	t.Diag = blas.NonUnit
 	return
+}
+
+// Potrs solves a system of n linear equations A*X = B where A is an n×n
+// symmetric positive definite matrix and B is an n×nrhs matrix, using the
+// Cholesky factorization A = U^T*U or A = L*L^T. t contains the corresponding
+// triangular factor as returned by Potrf. On entry, B contains the right-hand
+// side matrix B, on return it contains the solution matrix X.
+func Potrs(t blas64.Triangular, b blas64.General) {
+	lapack64.Dpotrs(t.Uplo, t.N, b.Cols, t.Data, t.Stride, b.Data, b.Stride)
 }
 
 // Gecon estimates the reciprocal of the condition number of the n×n matrix A
@@ -460,9 +454,9 @@ func Pocon(a blas64.Symmetric, anorm float64, work []float64, iwork []int) float
 // at least n, and Syev will panic otherwise.
 //
 // On entry, a contains the elements of the symmetric matrix A in the triangular
-// portion specified by uplo. If jobz == lapack.ComputeEV a contains the
-// orthonormal eigenvectors of A on exit, otherwise on exit the specified
-// triangular region is overwritten.
+// portion specified by uplo. If jobz == lapack.EVCompute, a contains the
+// orthonormal eigenvectors of A on exit, otherwise jobz must be lapack.EVNone
+// and on exit the specified triangular region is overwritten.
 //
 // Work is temporary storage, and lwork specifies the usable memory length. At minimum,
 // lwork >= 3*n-1, and Syev will panic otherwise. The amount of blocking is
@@ -521,10 +515,10 @@ func Trtrs(trans blas.Transpose, a blas64.Triangular, b blas64.General) (ok bool
 // where i is the imaginary unit. The computed eigenvectors are normalized to
 // have Euclidean norm equal to 1 and largest component real.
 //
-// Left eigenvectors will be computed only if jobvl == lapack.ComputeLeftEV,
-// otherwise jobvl must be lapack.None.
-// Right eigenvectors will be computed only if jobvr == lapack.ComputeRightEV,
-// otherwise jobvr must be lapack.None.
+// Left eigenvectors will be computed only if jobvl == lapack.LeftEVCompute,
+// otherwise jobvl must be lapack.LeftEVNone.
+// Right eigenvectors will be computed only if jobvr == lapack.RightEVCompute,
+// otherwise jobvr must be lapack.RightEVNone.
 // For other values of jobvl and jobvr Geev will panic.
 //
 // On return, wr and wi will contain the real and imaginary parts, respectively,
@@ -550,10 +544,10 @@ func Geev(jobvl lapack.LeftEVJob, jobvr lapack.RightEVJob, a blas64.General, wr,
 	if a.Cols != n {
 		panic("lapack64: matrix not square")
 	}
-	if jobvl == lapack.ComputeLeftEV && (vl.Rows != n || vl.Cols != n) {
+	if jobvl == lapack.LeftEVCompute && (vl.Rows != n || vl.Cols != n) {
 		panic("lapack64: bad size of VL")
 	}
-	if jobvr == lapack.ComputeRightEV && (vr.Rows != n || vr.Cols != n) {
+	if jobvr == lapack.RightEVCompute && (vr.Rows != n || vr.Cols != n) {
 		panic("lapack64: bad size of VR")
 	}
 	return lapack64.Dgeev(jobvl, jobvr, n, a.Data, a.Stride, wr, wi, vl.Data, vl.Stride, vr.Data, vr.Stride, work, lwork)

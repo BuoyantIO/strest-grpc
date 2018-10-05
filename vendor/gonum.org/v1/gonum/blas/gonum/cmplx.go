@@ -1,4 +1,4 @@
-// Copyright ©2017 The gonum Authors. All rights reserved.
+// Copyright ©2017 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -11,7 +11,7 @@ var (
 	_ blas.Complex128 = Implementation{}
 )
 
-// TOOD(btracey): Replace this as complex routines are added, and instead
+// TODO(btracey): Replace this as complex routines are added, and instead
 // automatically generate the complex64 routines from the complex128 ones.
 
 var noComplex = "native: implementation does not implement this routine, see the cgo wrapper in gonum.org/v1/netlib/blas"
@@ -130,93 +130,6 @@ func (Implementation) Cherk(ul blas.Uplo, t blas.Transpose, n, k int, alpha floa
 	panic(noComplex)
 }
 func (Implementation) Cher2k(ul blas.Uplo, t blas.Transpose, n, k int, alpha complex64, a []complex64, lda int, b []complex64, ldb int, beta float32, c []complex64, ldc int) {
-	panic(noComplex)
-}
-
-// Level 1 complex128 routines.
-
-func (Implementation) Zdotu(n int, x []complex128, incX int, y []complex128, incY int) (dotu complex128) {
-	panic(noComplex)
-}
-func (Implementation) Zdotc(n int, x []complex128, incX int, y []complex128, incY int) (dotc complex128) {
-	panic(noComplex)
-}
-func (Implementation) Dznrm2(n int, x []complex128, incX int) float64 {
-	panic(noComplex)
-}
-func (Implementation) Dzasum(n int, x []complex128, incX int) float64 {
-	panic(noComplex)
-}
-func (Implementation) Izamax(n int, x []complex128, incX int) int {
-	panic(noComplex)
-}
-func (Implementation) Zswap(n int, x []complex128, incX int, y []complex128, incY int) {
-	panic(noComplex)
-}
-func (Implementation) Zcopy(n int, x []complex128, incX int, y []complex128, incY int) {
-	panic(noComplex)
-}
-func (Implementation) Zaxpy(n int, alpha complex128, x []complex128, incX int, y []complex128, incY int) {
-	panic(noComplex)
-}
-func (Implementation) Zscal(n int, alpha complex128, x []complex128, incX int) {
-	panic(noComplex)
-}
-func (Implementation) Zdscal(n int, alpha float64, x []complex128, incX int) {
-	panic(noComplex)
-}
-
-// Level 2 complex128 routines.
-
-func (Implementation) Zgemv(tA blas.Transpose, m, n int, alpha complex128, a []complex128, lda int, x []complex128, incX int, beta complex128, y []complex128, incY int) {
-	panic(noComplex)
-}
-func (Implementation) Zgbmv(tA blas.Transpose, m, n int, kL int, kU int, alpha complex128, a []complex128, lda int, x []complex128, incX int, beta complex128, y []complex128, incY int) {
-	panic(noComplex)
-}
-func (Implementation) Ztrmv(ul blas.Uplo, tA blas.Transpose, d blas.Diag, n int, a []complex128, lda int, x []complex128, incX int) {
-	panic(noComplex)
-}
-func (Implementation) Ztbmv(ul blas.Uplo, tA blas.Transpose, d blas.Diag, n, k int, a []complex128, lda int, x []complex128, incX int) {
-	panic(noComplex)
-}
-func (Implementation) Ztpmv(ul blas.Uplo, tA blas.Transpose, d blas.Diag, n int, ap []complex128, x []complex128, incX int) {
-	panic(noComplex)
-}
-func (Implementation) Ztrsv(ul blas.Uplo, tA blas.Transpose, d blas.Diag, n int, a []complex128, lda int, x []complex128, incX int) {
-	panic(noComplex)
-}
-func (Implementation) Ztbsv(ul blas.Uplo, tA blas.Transpose, d blas.Diag, n, k int, a []complex128, lda int, x []complex128, incX int) {
-	panic(noComplex)
-}
-func (Implementation) Ztpsv(ul blas.Uplo, tA blas.Transpose, d blas.Diag, n int, ap []complex128, x []complex128, incX int) {
-	panic(noComplex)
-}
-func (Implementation) Zhemv(ul blas.Uplo, n int, alpha complex128, a []complex128, lda int, x []complex128, incX int, beta complex128, y []complex128, incY int) {
-	panic(noComplex)
-}
-func (Implementation) Zhbmv(ul blas.Uplo, n, k int, alpha complex128, a []complex128, lda int, x []complex128, incX int, beta complex128, y []complex128, incY int) {
-	panic(noComplex)
-}
-func (Implementation) Zhpmv(ul blas.Uplo, n int, alpha complex128, ap []complex128, x []complex128, incX int, beta complex128, y []complex128, incY int) {
-	panic(noComplex)
-}
-func (Implementation) Zgeru(m, n int, alpha complex128, x []complex128, incX int, y []complex128, incY int, a []complex128, lda int) {
-	panic(noComplex)
-}
-func (Implementation) Zgerc(m, n int, alpha complex128, x []complex128, incX int, y []complex128, incY int, a []complex128, lda int) {
-	panic(noComplex)
-}
-func (Implementation) Zher(ul blas.Uplo, n int, alpha float64, x []complex128, incX int, a []complex128, lda int) {
-	panic(noComplex)
-}
-func (Implementation) Zhpr(ul blas.Uplo, n int, alpha float64, x []complex128, incX int, a []complex128) {
-	panic(noComplex)
-}
-func (Implementation) Zher2(ul blas.Uplo, n int, alpha complex128, x []complex128, incX int, y []complex128, incY int, a []complex128, lda int) {
-	panic(noComplex)
-}
-func (Implementation) Zhpr2(ul blas.Uplo, n int, alpha complex128, x []complex128, incX int, y []complex128, incY int, ap []complex128) {
 	panic(noComplex)
 }
 

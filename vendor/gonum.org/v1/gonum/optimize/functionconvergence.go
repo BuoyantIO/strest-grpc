@@ -1,4 +1,4 @@
-// Copyright ©2015 The gonum Authors. All rights reserved.
+// Copyright ©2015 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -13,16 +13,23 @@ type FunctionConverge struct {
 	Relative   float64
 	Iterations int
 
-	best float64
-	iter int
+	first bool
+	best  float64
+	iter  int
 }
 
-func (fc *FunctionConverge) Init(f float64) {
-	fc.best = f
+func (fc *FunctionConverge) Init() {
+	fc.first = true
+	fc.best = 0
 	fc.iter = 0
 }
 
 func (fc *FunctionConverge) FunctionConverged(f float64) Status {
+	if fc.first {
+		fc.best = f
+		fc.first = false
+		return NotTerminated
+	}
 	if fc.Iterations == 0 {
 		return NotTerminated
 	}

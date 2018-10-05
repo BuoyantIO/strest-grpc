@@ -1,4 +1,4 @@
-// Copyright ©2014 The gonum Authors. All rights reserved.
+// Copyright ©2014 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -6,8 +6,9 @@ package distuv
 
 import (
 	"math"
-	"math/rand"
 	"sort"
+
+	"golang.org/x/exp/rand"
 
 	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/stat"
@@ -15,9 +16,9 @@ import (
 
 // Laplace represents the Laplace distribution (https://en.wikipedia.org/wiki/Laplace_distribution).
 type Laplace struct {
-	Mu     float64 // Mean of the Laplace distribution
-	Scale  float64 // Scale of the Laplace distribution
-	Source *rand.Rand
+	Mu    float64 // Mean of the Laplace distribution
+	Scale float64 // Scale of the Laplace distribution
+	Src   rand.Source
 }
 
 // CDF computes the value of the cumulative density function at x.
@@ -105,7 +106,6 @@ func (l Laplace) MarshalParameters(p []Parameter) {
 	p[0].Value = l.Mu
 	p[1].Name = "Scale"
 	p[1].Value = l.Scale
-	return
 }
 
 // Mean returns the mean of the probability distribution.
@@ -147,10 +147,10 @@ func (l Laplace) Prob(x float64) float64 {
 // Rand returns a random sample drawn from the distribution.
 func (l Laplace) Rand() float64 {
 	var rnd float64
-	if l.Source == nil {
+	if l.Src == nil {
 		rnd = rand.Float64()
 	} else {
-		rnd = l.Source.Float64()
+		rnd = rand.New(l.Src).Float64()
 	}
 	u := rnd - 0.5
 	if u < 0 {

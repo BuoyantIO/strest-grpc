@@ -26,10 +26,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/status"
-	"google.golang.org/grpc/transport"
 )
 
 // MeasuredResponse tracks the latency of a response and any
@@ -366,7 +363,7 @@ func sendStream(
 			return
 		} else if err != nil {
 			// check for "rpc error: code = Internal desc = transport is closing"
-			if err.Error() != status.New(codes.Internal, transport.ErrConnClosing.Desc).Err().Error() {
+			if err.Error() != "rpc error: code = Internal desc = transport is closing" {
 				log.Fatalf("Failed to Send ResponseSpec: %v", err)
 			}
 			return

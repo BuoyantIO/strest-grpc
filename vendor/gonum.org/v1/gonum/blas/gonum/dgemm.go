@@ -1,4 +1,4 @@
-// Copyright ©2014 The gonum Authors. All rights reserved.
+// Copyright ©2014 The Gonum Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -12,10 +12,14 @@ import (
 	"gonum.org/v1/gonum/internal/asm/f64"
 )
 
-// Dgemm computes
-//  C = beta * C + alpha * A * B,
-// where A, B, and C are dense matrices, and alpha and beta are scalars.
-// tA and tB specify whether A or B are transposed.
+// Dgemm performs one of the matrix-matrix operations
+//  C = alpha * A * B + beta * C
+//  C = alpha * A^T * B + beta * C
+//  C = alpha * A * B^T + beta * C
+//  C = alpha * A^T * B^T + beta * C
+// where A is an m×k or k×m dense matrix, B is an n×k or k×n dense matrix, C is
+// an m×n matrix, and alpha and beta are scalars. tA and tB specify whether A or
+// B are transposed.
 func (Implementation) Dgemm(tA, tB blas.Transpose, m, n, k int, alpha float64, a []float64, lda int, b []float64, ldb int, beta float64, c []float64, ldc int) {
 	if tA != blas.NoTrans && tA != blas.Trans && tA != blas.ConjTrans {
 		panic(badTranspose)
@@ -25,17 +29,17 @@ func (Implementation) Dgemm(tA, tB blas.Transpose, m, n, k int, alpha float64, a
 	}
 	aTrans := tA == blas.Trans || tA == blas.ConjTrans
 	if aTrans {
-		checkMatrix64(k, m, a, lda)
+		checkDMatrix('a', k, m, a, lda)
 	} else {
-		checkMatrix64(m, k, a, lda)
+		checkDMatrix('a', m, k, a, lda)
 	}
 	bTrans := tB == blas.Trans || tB == blas.ConjTrans
 	if bTrans {
-		checkMatrix64(n, k, b, ldb)
+		checkDMatrix('b', n, k, b, ldb)
 	} else {
-		checkMatrix64(k, n, b, ldb)
+		checkDMatrix('b', k, n, b, ldb)
 	}
-	checkMatrix64(m, n, c, ldc)
+	checkDMatrix('c', m, n, c, ldc)
 
 	// scale c
 	if beta != 1 {
@@ -121,7 +125,7 @@ func dgemmParallel(aTrans, bTrans bool, m, n, k int, a []float64, lda int, b []f
 		go func() {
 			defer wg.Done()
 			// Make local copies of otherwise global variables to reduce shared memory.
-			// This has a noticable effect on benchmarks in some cases.
+			// This has a noticeable effect on benchmarks in some cases.
 			alpha := alpha
 			aTrans := aTrans
 			bTrans := bTrans
@@ -258,19 +262,4 @@ func dgemmSerialTransTrans(m, n, k int, a []float64, lda int, b []float64, ldb i
 
 func sliceView64(a []float64, lda, i, j, r, c int) []float64 {
 	return a[i*lda+j : (i+r-1)*lda+j+c]
-}
-
-func checkMatrix64(m, n int, a []float64, lda int) {
-	if m < 0 {
-		panic("blas: rows < 0")
-	}
-	if n < 0 {
-		panic("blas: cols < 0")
-	}
-	if lda < n {
-		panic("blas: illegal stride")
-	}
-	if len(a) < (m-1)*lda+n {
-		panic("blas: insufficient matrix slice length")
-	}
 }
