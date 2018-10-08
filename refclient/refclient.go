@@ -40,7 +40,9 @@ func Run() {
 	go func(stream pb.Responder_StreamingGetClient, receiving chan<- struct{}, count int) {
 		received := 0
 		for {
+			log.Infof("stream.Recv()1")
 			_, err := stream.Recv()
+			log.Infof("stream.Recv()2")
 			if err == nil {
 				received++
 			} else if err == io.EOF {

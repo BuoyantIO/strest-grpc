@@ -19,9 +19,11 @@
 package transport
 
 import (
+	"fmt"
 	"io"
 	"math"
 	"net"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -664,6 +666,7 @@ func (t *http2Client) CloseStream(s *Stream, err error) {
 func (t *http2Client) closeStream(s *Stream, err error, rst bool, rstCode http2.ErrCode, st *status.Status, mdata map[string][]string, eosReceived bool) {
 	if !s.isStreamWriteDone() {
 		// send END_STREAM
+		fmt.Printf("%s\n", debug.Stack())
 		t.Write(s, nil, nil, &Options{Last: true})
 	}
 
