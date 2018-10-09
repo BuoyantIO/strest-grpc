@@ -152,14 +152,15 @@ func formatBytes(bytes uint) string {
 func logIntervalReport(
 	now time.Time,
 	interval *time.Duration,
-	good, bad, bytes, min, max uint,
+	iteration, good, bad, bytes, min, max uint,
 	latencyHist *hdrhistogram.Histogram,
 	jitterHist *hdrhistogram.Histogram) {
 	if min == math.MaxInt64 {
 		min = 0
 	}
-	fmt.Printf("%s % 7s %6d/%1d %s L: %3d [%3d %3d ] %4d J: %3d %3d\n",
+	fmt.Printf("%s %3d % 7s %6d/%1d %s L: %3d [%3d %3d ] %4d J: %3d %3d\n",
 		now.Format(time.RFC3339),
+		iteration,
 		formatBytes(bytes),
 		good,
 		bad,
@@ -476,7 +477,7 @@ func loop(
 ) {
 	defer mainWait.Done()
 
-	var bytes, totalBytes, count, sendCount, recvCount, good, totalGood, bad, totalBad, max, min uint
+	var bytes, totalBytes, count, sendCount, recvCount, iteration, good, totalGood, bad, totalBad, max, min uint
 	min = math.MaxInt64
 
 	concurrency := cfg.Connections * cfg.Streams
@@ -533,6 +534,7 @@ func loop(
 
 	previousinterval := time.Now()
 
+	iteration = 0
 	for {
 		select {
 		case <-interrupt:
@@ -548,7 +550,7 @@ func loop(
 
 			if !cfg.NoIntervalReport && count > 0 {
 				t := previousinterval.Add(cfg.Interval)
-				logIntervalReport(t, &cfg.Interval, good, bad, bytes, min, max,
+				logIntervalReport(t, &cfg.Interval, iteration, good, bad, bytes, min, max,
 					latencyHist, jitterHist)
 			}
 
@@ -632,9 +634,10 @@ func loop(
 			if cfg.NoIntervalReport {
 				continue
 			}
-			logIntervalReport(t, &cfg.Interval, good, bad, bytes, min, max,
+			logIntervalReport(t, &cfg.Interval, iteration, good, bad, bytes, min, max,
 				latencyHist, jitterHist)
 			bytes, count, good, bad, max, min = 0, 0, 0, 0, 0, math.MaxInt64
+			iteration++
 			latencyHist.Reset()
 			jitterHist.Reset()
 			previousinterval = t
