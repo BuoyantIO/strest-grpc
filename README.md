@@ -18,7 +18,7 @@ on a single connection. Kill it to see a final performance report.
 
 ```
 $ strest-grpc client --address localhost:11111 --latencyUnit us
-2018-08-10T10:45:10-07:00    0.0B  39594/0 10s L: 132 [388 629 ] 7383 J:   0   0
+2018-08-10T10:45:10-07:00   0    0.0B  39594/0 10s L: 132 [388 629 ] 7383 J:   0   0
 {
   "good": 42074,
   "bad": 0,
