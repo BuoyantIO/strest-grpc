@@ -1,3 +1,55 @@
+// Package client contains all strest-grpc client code. It supports both
+// streaming and non-streaming configurations.
+
+//
+// control flow
+//
+// Run() ->
+//   loop() (drives requests, aggregates responses, prints output, shuts down)
+//   connect() (1x per connection) ->
+//     sendStreamingRequests() (1x per stream. if streaming) ->
+//       recvStream()
+//       sendStream()
+//     sendNonStreamingRequests() (1x per stream. if not streaming) ->
+//       safeNonStreamingRequest()
+
+//
+// channel communication
+//
+// driver: throttles rate at which requests are sent
+// shutdown: informs all request workers to shutdown
+// responses: aggregates responses
+// closeSend: informs streaming sender to close
+//
+// +--------+
+// |        |   driver     +--------------+
+// |        | -----------> | sendStream() | <------------+
+// |        |              +------------- +   closeSend  |
+// |        |                                            |
+// |        |   shutdown   +-------------------------+   |
+// |        | -----------> | sendStreamingRequests() | --+
+// |        |              +-------------------------+
+// |        |
+// |        |   responses  +--------------+
+// |        | <----------- | recvStream() |
+// |        |              +--------------+
+// |        |
+// |        |                  streaming
+// | loop() | ---------------------------------------------
+// |        |                non-streaming
+// |        |
+// |        |   driver     +----------------------------+
+// |        | -----------> |                            |
+// |        |              | sendNonStreamingRequests() |
+// |        |   shutdown   |                            |
+// |        | -----------> |                            |
+// |        |              +----------------------------+
+// |        |
+// |        |   responses  +---------------------------+
+// |        | <----------- | safeNonStreamingRequest() |
+// |        |              +---------------------------+
+// +--------+
+
 package client
 
 import (
@@ -26,11 +78,13 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 )
 
 // MeasuredResponse tracks the latency of a response and any
-// accompaning error. timeBetweenFrames is how long we spend waiting
+// accompanying error. timeBetweenFrames is how long we spend waiting
 // for the next frame to arrive.
 type MeasuredResponse struct {
 	worker            workerID
@@ -290,88 +344,89 @@ func parseStreamingRatio(streamingRatio string) (int64, int64) {
 
 func recvStream(
 	worker workerID,
-	driver <-chan struct{},
 	responses chan<- *MeasuredResponse,
 	stream pb.Responder_StreamingGetClient,
-	receiving <-chan struct{},
 ) {
 	for {
-		select {
-		// TODO: should driver control sends rather than receives?
-		case <-driver:
-			start := time.Now()
-			resp, err := stream.Recv()
-			elapsed := time.Since(start)
+		start := time.Now()
+		resp, err := stream.Recv()
+		elapsed := time.Since(start)
 
-			if err == io.EOF {
-				// read done.
-				log.Error("stream.Recv() returned io.EOF")
-				return
-			}
-			var mr *MeasuredResponse
-			if err != nil {
-				mr = &MeasuredResponse{err: err}
-			} else {
-				timeBetweenFrames := time.Duration(resp.CurrentFrameSent - resp.LastFrameSent)
-				bytes := uint(len([]byte(resp.Body)))
-				mr = &MeasuredResponse{
-					worker,
-					timeBetweenFrames,
-					elapsed,
-					bytes,
-					err,
+		if err != nil {
+			if err != io.EOF {
+				s := status.Convert(err)
+				code := s.Code()
+				msg := s.Message()
+				// ignore errors caused by process exiting
+				if code != codes.Canceled &&
+					(code != codes.Unavailable || msg != "transport is closing") {
+					if code == codes.Unknown && strings.HasPrefix(msg, "strest-grpc stream error for ErrorRate: ") {
+						// expected error based on ErrorRate
+						responses <- &MeasuredResponse{err: err}
+					} else {
+						log.Errorf("stream.Recv() returned %s", err)
+					}
 				}
-			}
-			responses <- mr
-
-		case _, more := <-receiving:
-			if more {
-				// we should never get here
-				log.Fatalf("Invalid state: message sent on receiving channel")
 			}
 
 			return
+		}
+
+		timeBetweenFrames := time.Duration(resp.CurrentFrameSent - resp.LastFrameSent)
+		bytes := uint(len([]byte(resp.Body)))
+		responses <- &MeasuredResponse{
+			worker,
+			timeBetweenFrames,
+			elapsed,
+			bytes,
+			err,
 		}
 	}
 }
 
 func sendStream(
+	driver <-chan struct{},
 	lengthMap map[int32]int64,
 	latencyMap map[int32]int64,
 	errorRate float32,
 	requestRatioM int64,
 	requestRatioN int64,
 	stream pb.Responder_StreamingGetClient,
-	sending chan<- struct{},
+	closeSend <-chan struct{},
 ) {
+	defer stream.CloseSend()
+
 	numRequests := int64(0)
 	currentRequest := int64(0)
 
 	for {
-		if (currentRequest % requestRatioM) == 0 {
-			numRequests = requestRatioN
-		}
-
-		err := stream.Send(&pb.StreamingResponseSpec{
-			Count:              int32(numRequests),
-			LatencyPercentiles: latencyMap,
-			LengthPercentiles:  lengthMap,
-			ErrorRate:          errorRate,
-		})
-
-		if err == io.EOF {
-			close(sending)
-			return
-		} else if err != nil {
-			// check for "rpc error: code = Internal desc = transport is closing"
-			if err.Error() != "rpc error: code = Internal desc = transport is closing" {
-				log.Fatalf("Failed to Send ResponseSpec: %v", err)
+		select {
+		case <-driver:
+			if (currentRequest % requestRatioM) == 0 {
+				numRequests = requestRatioN
 			}
+
+			err := stream.Send(&pb.StreamingResponseSpec{
+				Count:              int32(numRequests),
+				LatencyPercentiles: latencyMap,
+				LengthPercentiles:  lengthMap,
+				ErrorRate:          errorRate,
+			})
+
+			if err != nil {
+				if err != io.EOF &&
+					err.Error() != "rpc error: code = Internal desc = transport is closing" {
+					log.Errorf("Failed to Send ResponseSpec: %v", err)
+				}
+
+				return
+			}
+
+			numRequests = 0
+			currentRequest++
+		case <-closeSend:
 			return
 		}
-
-		numRequests = 0
-		currentRequest++
 	}
 }
 
@@ -386,7 +441,7 @@ func sendStreamingRequests(
 	r *rand.Rand,
 	driver <-chan struct{},
 	responses chan<- *MeasuredResponse,
-) error {
+) {
 
 	latencyMap := latencyDistribution.ToMap()
 	lengthMap := lengthDistribution.ToMap()
@@ -397,25 +452,32 @@ func sendStreamingRequests(
 		if err != nil {
 			log.Fatalf("%v.StreamingGet(_) = _, %v", client, err)
 		}
-		defer stream.CloseSend()
-		sending := make(chan struct{})
-		receiving := make(chan struct{})
 
-		go recvStream(worker, driver, responses, stream, receiving)
-		go sendStream(lengthMap, latencyMap, errorRate, requestRatioM, requestRatioN, stream, sending)
+		// capacity == 2, to allow for either side to close, or both
+		closing := make(chan struct{}, 2)
+		closeSend := make(chan struct{})
 
+		go func(stream pb.Responder_StreamingGetClient, closing chan<- struct{}) {
+			recvStream(worker, responses, stream)
+			closing <- struct{}{}
+		}(stream, closing)
+
+		go func(stream pb.Responder_StreamingGetClient, closing chan<- struct{}, closeSend <-chan struct{}) {
+			sendStream(driver, lengthMap, latencyMap, errorRate, requestRatioM, requestRatioN, stream, closeSend)
+			closing <- struct{}{}
+		}(stream, closing, closeSend)
+
+		exiting := false
 		select {
-		case _, more := <-sending:
-			if more {
-				// we should never get here
-				log.Fatalf("Invalid state: message sent on sending channel")
-			}
-
-			stream.CloseSend()
-			close(receiving)
-
+		case <-closing:
 		case <-shutdown:
-			return nil
+			exiting = true
+		}
+
+		close(closeSend)
+
+		if exiting {
+			return
 		}
 	}
 }
@@ -453,13 +515,14 @@ func connect(
 			r := rand.New(rand.NewSource(time.Now().UnixNano()))
 			if !cfg.Streaming {
 				sendNonStreamingRequests(worker, client, shutdown, cfg.ClientTimeout,
-					lengthDistribution, latencyDistribution, float32(cfg.ErrorRate), r, driver, responses)
+					lengthDistribution, latencyDistribution,
+					float32(cfg.ErrorRate), r, driver, responses,
+				)
 			} else {
-				err := sendStreamingRequests(worker, client, shutdown,
-					lengthDistribution, latencyDistribution, float32(cfg.ErrorRate), cfg.StreamingRatio, r, driver, responses)
-				if err != nil {
-					log.Fatalf("could not send a request: %v", err)
-				}
+				sendStreamingRequests(worker, client, shutdown,
+					lengthDistribution, latencyDistribution,
+					float32(cfg.ErrorRate), cfg.StreamingRatio, r, driver, responses,
+				)
 			}
 		}()
 	}
@@ -500,13 +563,6 @@ func loop(
 	interrupt := make(chan os.Signal, 2)
 	signal.Notify(interrupt, syscall.SIGINT)
 
-	// If a target rps is specified, it will periodically notify the driving/reporting
-	// goroutine that a full concurrency of work should be driven.
-	var driveTick <-chan time.Time
-	if cfg.TotalTargetRps > 0 {
-		driveTick = time.Tick(time.Second)
-	}
-
 	// Drive a single request.
 	drive := func() {
 		if cfg.TotalRequests > 0 && sendCount == cfg.TotalRequests {
@@ -524,11 +580,28 @@ func loop(
 		driver <- struct{}{}
 	}
 
-	// If there is no target RPS, ensure there's enough capacity for all threads to
-	// operate:
-	if cfg.TotalTargetRps == 0 {
-		for i := uint(0); i != concurrency; i++ {
-			drive()
+	var driveTick <-chan time.Time
+	if cfg.TotalTargetRps > 0 {
+		// If a target rps is specified, it will periodically notify the driving/reporting
+		// goroutine that a full concurrency of work should be driven.
+		driveTick = time.Tick(time.Second)
+	} else {
+		// If there is no target RPS, ensure there's enough capacity for all threads to
+		// operate
+
+		if cfg.Streaming {
+			// If Streaming == true, endlessly drive() sends, as we won't drive() them
+			// below based on responses. We can also assume that TotalRequests == 0.
+			go func() {
+				for {
+					sendCount++
+					driver <- struct{}{}
+				}
+			}()
+		} else {
+			for i := uint(0); i != concurrency; i++ {
+				drive()
+			}
 		}
 	}
 
@@ -622,12 +695,19 @@ func loop(
 				promJitterNSHistogram.Observe(float64(respJitterNS))
 			}
 
-			if recvCount == cfg.TotalRequests {
-				// N.B. recvCount > 0, so totalRequests >0
-				cleanup <- struct{}{}
-			} else if cfg.TotalTargetRps == 0 {
-				// If there's no target rps, just restore capacity immediately.
-				drive()
+			// TODO: Make this work for Streaming. Specifically, when ErrorRate,
+			// TotalRequests, and StreamingRatio are all non-default, the value of
+			// recvCount is non-deterministic, and cannot be relied upon to
+			// terminate the process. This also means we cannot drive() sends based on
+			// responses, as we'll starve sendStream().
+			if !cfg.Streaming {
+				if recvCount == cfg.TotalRequests {
+					// N.B. recvCount > 0, so totalRequests >0
+					cleanup <- struct{}{}
+				} else if cfg.TotalTargetRps == 0 {
+					// If there's no target rps, just restore capacity immediately.
+					drive()
+				}
 			}
 
 		case t := <-intervalReport:
@@ -691,6 +771,10 @@ func (cfg Config) Run() {
 
 	if cfg.Streams < 1 {
 		exUsage("streams must be at least 1")
+	}
+
+	if cfg.Streaming && cfg.TotalRequests != 0 {
+		log.Fatalf("cannot use both -streaming and -totalRequests.")
 	}
 
 	latencyPercentiles, err := percentiles.ParsePercentiles(cfg.LatencyPercentiles)
