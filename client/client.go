@@ -1,3 +1,55 @@
+// Package client contains all strest-grpc client code. It supports both
+// streaming and non-streaming configurations.
+
+//
+// control flow
+//
+// Run() ->
+//   loop() (drives requests, aggregates responses, prints output, shuts down)
+//   connect() (1x per connection) ->
+//     sendStreamingRequests() (1x per stream. if streaming) ->
+//       recvStream()
+//       sendStream()
+//     sendNonStreamingRequests() (1x per stream. if not streaming) ->
+//       safeNonStreamingRequest()
+
+//
+// channel communication
+//
+// driver: throttles rate at which requests are sent
+// shutdown: informs all request workers to shutdown
+// responses: aggregates responses
+// closeSend: informs streaming sender to close
+//
+// +--------+
+// |        |   driver     +--------------+
+// |        | -----------> | sendStream() | <------------+
+// |        |              +------------- +   closeSend  |
+// |        |                                            |
+// |        |   shutdown   +-------------------------+   |
+// |        | -----------> | sendStreamingRequests() | --+
+// |        |              +-------------------------+
+// |        |
+// |        |   responses  +--------------+
+// |        | <----------- | recvStream() |
+// |        |              +--------------+
+// |        |
+// |        |                  streaming
+// | loop() | ---------------------------------------------
+// |        |                non-streaming
+// |        |
+// |        |   driver     +----------------------------+
+// |        | -----------> |                            |
+// |        |              | sendNonStreamingRequests() |
+// |        |   shutdown   |                            |
+// |        | -----------> |                            |
+// |        |              +----------------------------+
+// |        |
+// |        |   responses  +---------------------------+
+// |        | <----------- | safeNonStreamingRequest() |
+// |        |              +---------------------------+
+// +--------+
+
 package client
 
 import (
