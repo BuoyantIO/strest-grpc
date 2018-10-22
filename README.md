@@ -86,6 +86,7 @@ Flags:
       --errorRate float             the chance to return an error
   -h, --help                        help for client
       --interval duration           reporting interval (default 10s)
+      --iterations uint             number of iterations for the experiment. Exits gracefully after `iterations * interval` (default 0, meaning infinite)
       --latencyPercentiles string   response latency percentile distribution. (e.g. 50=10,100=100) (default "100=0")
       --latencyUnit string          latency units [ms|us|ns] (default "ms")
       --lengthPercentiles string    response body length percentile distribution. (e.g. 50=100,100=1000) (default "100=0")

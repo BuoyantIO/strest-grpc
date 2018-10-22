@@ -29,6 +29,7 @@ func init() {
 	flags.UintVar(&clientCfg.TotalRequests, "totalRequests", 0, "total number of requests to send. default: infinite")
 	flags.UintVar(&clientCfg.TotalTargetRps, "totalTargetRps", 0, "target requests per second")
 	flags.DurationVar(&clientCfg.Interval, "interval", 10*time.Second, "reporting interval")
+	flags.UintVar(&clientCfg.NumIterations, "iterations", 0, "Number of iterations (0 for infinite)")
 	flags.StringVar(&clientCfg.LatencyPercentiles, "latencyPercentiles", "100=0", "response latency percentile distribution (in ms). (e.g. 50=10,100=100)")
 	flags.StringVar(&clientCfg.LengthPercentiles, "lengthPercentiles", "100=0", "response body length percentile distribution. (e.g. 50=100,100=1000)")
 	flags.Float64Var(&clientCfg.ErrorRate, "errorRate", 0.0, "the chance to return an error")

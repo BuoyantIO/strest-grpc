@@ -716,8 +716,11 @@ func loop(
 			}
 			logIntervalReport(t, &cfg.Interval, iteration, good, bad, bytes, min, max,
 				latencyHist, jitterHist)
-			bytes, count, good, bad, max, min = 0, 0, 0, 0, 0, math.MaxInt64
 			iteration++
+			if cfg.NumIterations > 0 && iteration >= cfg.NumIterations {
+				cleanup <- struct{}{}
+			}
+			bytes, count, good, bad, max, min = 0, 0, 0, 0, 0, math.MaxInt64
 			latencyHist.Reset()
 			jitterHist.Reset()
 			previousinterval = t
@@ -735,6 +738,7 @@ type Config struct {
 	TotalRequests      uint
 	TotalTargetRps     uint
 	Interval           time.Duration
+	NumIterations      uint
 	LatencyPercentiles string
 	LengthPercentiles  string
 	ErrorRate          float64
