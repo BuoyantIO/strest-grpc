@@ -540,7 +540,7 @@ func loop(
 ) {
 	defer mainWait.Done()
 
-	var bytes, totalBytes, count, sendCount, recvCount, iteration, good, totalGood, bad, totalBad, max, min uint
+	var bytes, totalBytes, sendCount, recvCount, iteration, good, totalGood, bad, totalBad, max, min uint
 	min = math.MaxInt64
 
 	concurrency := cfg.Connections * cfg.Streams
@@ -559,7 +559,7 @@ func loop(
 	jitterHist := hdrhistogram.New(0, dayInTimeUnits, 3)
 	globalJitterHist := hdrhistogram.New(0, dayInTimeUnits, 3)
 
-	cleanup := make(chan struct{}, 2)
+	cleanup := make(chan struct{}, 3)
 	interrupt := make(chan os.Signal, 2)
 	signal.Notify(interrupt, syscall.SIGINT)
 
@@ -605,8 +605,6 @@ func loop(
 		}
 	}
 
-	previousinterval := time.Now()
-
 	iteration = 0
 	for {
 		select {
@@ -619,12 +617,6 @@ func loop(
 				for _, shutdown := range streams {
 					shutdown <- struct{}{}
 				}
-			}
-
-			if !cfg.NoIntervalReport && count > 0 {
-				t := previousinterval.Add(cfg.Interval)
-				logIntervalReport(t, &cfg.Interval, iteration, good, bad, bytes, min, max,
-					latencyHist, jitterHist)
 			}
 
 			if !cfg.NoFinalReport {
@@ -656,7 +648,6 @@ func loop(
 			}
 
 		case resp := <-responses:
-			count++
 			recvCount++
 			promRequests.Inc()
 
@@ -720,10 +711,9 @@ func loop(
 			if cfg.NumIterations > 0 && iteration >= cfg.NumIterations {
 				cleanup <- struct{}{}
 			}
-			bytes, count, good, bad, max, min = 0, 0, 0, 0, 0, math.MaxInt64
+			bytes, good, bad, max, min = 0, 0, 0, 0, math.MaxInt64
 			latencyHist.Reset()
 			jitterHist.Reset()
-			previousinterval = t
 		}
 	}
 }
