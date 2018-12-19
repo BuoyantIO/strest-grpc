@@ -1,0 +1,36 @@
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: strest-server
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: strest-server
+  template:
+    metadata:
+      labels:
+        app: strest-server
+    spec:
+      containers:
+      - name: strest-server
+        image: buoyantio/strest-grpc:0.0.7
+        args:
+        - "server"
+        - "--address=:11111"
+        ports:
+        - name: grpc
+          containerPort: 11111
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: strest-server
+spec:
+  selector:
+    app: strest-server
+  clusterIP: None
+  ports:
+  - name: grpc
+    port: 11111

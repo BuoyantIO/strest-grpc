@@ -178,6 +178,29 @@ Global Flags:
   -l, --logLevel string   log level, must be one of: panic, fatal, error, warn, info, debug (default "info")
 ```
 
+## Running in Kubernetes
+
+It's also possible to run the client and server in Kubernetes, using the provided configs
+in the [config/](config) directory.
+
+First create the strest-server deployment and service.
+
+```
+kubectl apply -f config/server.yml
+```
+
+Then create the strest-client deployment.
+
+```
+kubectl apply -f config/client.yml
+```
+
+View the logs from the client pod to see the strest performance report.
+
+```
+kubectl logs -c strest-client deploy/strest-client
+```
+
 ## Building
 
 To build the strest-grpc binaries and archives, run:

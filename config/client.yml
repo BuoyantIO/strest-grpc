@@ -1,0 +1,24 @@
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: strest-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: strest-client
+  template:
+    metadata:
+      labels:
+        app: strest-client
+    spec:
+      containers:
+      - name: strest-client
+        image: buoyantio/strest-grpc:0.0.7
+        args:
+        - "client"
+        - "--address=strest-server:11111"
+        - "--connections=5"
+        - "--totalTargetRps=100"
+        - "--streams=5"
