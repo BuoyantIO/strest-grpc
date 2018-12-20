@@ -1,5 +1,5 @@
 ---
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: strest-client
@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: strest-client
-        image: buoyantio/strest-grpc:0.0.7
+        image: buoyantio/strest-grpc:latest
         args:
         - "client"
         - "--address=strest-server:11111"
