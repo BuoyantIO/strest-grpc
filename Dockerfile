@@ -1,11 +1,19 @@
-FROM golang:1.11.1-stretch as build
-ADD . /go/src/github.com/buoyantio/strest-grpc
-RUN CGO_ENABLED=0 go build -installsuffix cgo -o /go/bin/strest-grpc /go/src/github.com/buoyantio/strest-grpc/main.go
+FROM golang:1.11.5-stretch as build
 
-FROM alpine:3.8
+WORKDIR /strest-grpc
+
+COPY go.mod .
+COPY go.sum .
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -installsuffix cgo -o ./strest-grpc
+
+FROM alpine:3.9
 RUN apk --update upgrade && \
     apk add ca-certificates curl nghttp2 && \
     update-ca-certificates && \
     rm -rf /var/cache/apk/*
-COPY --from=build /go/bin /go/bin
-ENTRYPOINT ["/go/bin/strest-grpc"]
+COPY --from=build /strest-grpc/strest-grpc /strest-grpc/
+ENTRYPOINT ["/strest-grpc/strest-grpc"]

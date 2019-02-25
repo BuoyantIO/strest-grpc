@@ -65,7 +65,7 @@ func (cfg Config) Run() {
 		return mismatch
 	}
 
-	grad := func(grad, x []float64) {
+	grad := func(grad, x []float64) []float64 {
 		for i := range grad {
 			grad[i] = 0
 		}
@@ -82,17 +82,24 @@ func (cfg Config) Run() {
 			grad[1] += dMismatchDPred * dPredDKappa * dKappaDX
 			grad[2] += dMismatchDPred * dPredDLambda * dLambdaDX
 		}
+
+		return grad
 	}
 
 	problem := optimize.Problem{
 		Func: f,
 		Grad: grad,
 	}
-	settings := optimize.DefaultSettingsLocal()
-	settings.GradientThreshold = 1e-2 // Looser tolerance because using FD derivative
+	settings := &optimize.Settings{
+		GradientThreshold: 1e-2,
+		Converger: &optimize.FunctionConverge{
+			Absolute:   1e-10,
+			Iterations: 20,
+		},
+	}
 
 	initX := []float64{0, -1, -3} // make sure they all start positive
-	result, err := optimize.Minimize(problem, initX, nil, nil)
+	result, err := optimize.Minimize(problem, initX, settings, nil)
 	if err != nil {
 		fmt.Println("Optimization error:", err)
 	}
