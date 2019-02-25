@@ -1,7 +1,3 @@
-dependencies:
-  override:
-    - mkdir -p ~/src/github.com/buoyantio
-    - ln -s ~/strest-grpc ~/src/github.com/buoyantio
 test:
   override:
-    - cd ~/src/github.com/buoyantio/strest-grpc && GOPATH=~/ go test -v ./...
+    - go test -v ./...
