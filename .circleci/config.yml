@@ -3,7 +3,6 @@ jobs:
   build:
     docker:
     - image: circleci/golang:1.11.5-stretch
-    working_directory: /strest-grpc
     steps:
     - checkout
     - restore_cache:
