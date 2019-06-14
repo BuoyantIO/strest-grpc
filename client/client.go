@@ -264,9 +264,11 @@ func logFinalReport(good, bad, bytes uint, latencies *hdrhistogram.Histogram, ji
 func safeNonStreamingRequest(worker workerID,
 	client pb.ResponderClient,
 	clientTimeout time.Duration,
-	lengthDistribution distribution.Distribution,
+	requestLengthDistribution,
+	lengthDistribution,
 	latencyDistribution distribution.Distribution,
-	errorRate float32, r *rand.Rand,
+	errorRate float32,
+	r *rand.Rand,
 	responses chan<- *MeasuredResponse) {
 	start := time.Now()
 
@@ -279,10 +281,16 @@ func safeNonStreamingRequest(worker workerID,
 		ctx = context.Background()
 	}
 
+	requestDataLength := lengthDistribution.Get(r.Int31() % 1000)
+	data := make([]byte, requestDataLength)
+	r.Read(data)
+
 	spec := pb.ResponseSpec{
 		Length:    int32(lengthDistribution.Get(r.Int31() % 1000)),
 		Latency:   latencyDistribution.Get(r.Int31() % 1000),
-		ErrorRate: errorRate}
+		ErrorRate: errorRate,
+		Data:      data,
+	}
 
 	log.Debugf("%v: req", worker)
 	resp, err := client.Get(ctx, &spec)
@@ -302,7 +310,8 @@ func sendNonStreamingRequests(
 	client pb.ResponderClient,
 	shutdown <-chan struct{},
 	clientTimeout time.Duration,
-	lengthDistribution distribution.Distribution,
+	requestLengthDistribution,
+	lengthDistribution,
 	latencyDistribution distribution.Distribution,
 	errorRate float32,
 	r *rand.Rand,
@@ -314,7 +323,7 @@ func sendNonStreamingRequests(
 		case <-shutdown:
 			return
 		case <-driver:
-			safeNonStreamingRequest(worker, client, clientTimeout, lengthDistribution, latencyDistribution, errorRate, r, responses)
+			safeNonStreamingRequest(worker, client, clientTimeout, requestLengthDistribution, lengthDistribution, latencyDistribution, errorRate, r, responses)
 		}
 	}
 }
@@ -490,7 +499,8 @@ func connect(
 	shutdowns []chan struct{},
 	connOpts []grpc.DialOption,
 	c uint,
-	latencyDistribution distribution.Distribution,
+	requestLengthDistribution,
+	latencyDistribution,
 	lengthDistribution distribution.Distribution,
 ) {
 	defer mainWait.Done()
@@ -515,7 +525,7 @@ func connect(
 			r := rand.New(rand.NewSource(time.Now().UnixNano()))
 			if !cfg.Streaming {
 				sendNonStreamingRequests(worker, client, shutdown, cfg.ClientTimeout,
-					lengthDistribution, latencyDistribution,
+					requestLengthDistribution, lengthDistribution, latencyDistribution,
 					float32(cfg.ErrorRate), r, driver, responses,
 				)
 			} else {
@@ -720,25 +730,26 @@ func loop(
 
 /// Configuration to run a client.
 type Config struct {
-	Address            string
-	UseUnixAddr        bool
-	ClientTimeout      time.Duration
-	Connections        uint
-	Streams            uint
-	TotalRequests      uint
-	TotalTargetRps     uint
-	Interval           time.Duration
-	NumIterations      uint
-	LatencyPercentiles string
-	LengthPercentiles  string
-	ErrorRate          float64
-	NoIntervalReport   bool
-	NoFinalReport      bool
-	Streaming          bool
-	StreamingRatio     string
-	MetricAddr         string
-	LatencyUnit        string
-	TlsTrustChainFile  string
+	Address                  string
+	UseUnixAddr              bool
+	ClientTimeout            time.Duration
+	Connections              uint
+	Streams                  uint
+	TotalRequests            uint
+	TotalTargetRps           uint
+	Interval                 time.Duration
+	NumIterations            uint
+	LatencyPercentiles       string
+	LengthPercentiles        string
+	RequestLengthPercentiles string
+	ErrorRate                float64
+	NoIntervalReport         bool
+	NoFinalReport            bool
+	Streaming                bool
+	StreamingRatio           string
+	MetricAddr               string
+	LatencyUnit              string
+	TlsTrustChainFile        string
 }
 
 // TODO: this would be much less ugly if the configuration was either stored in a struct, or used viper...
@@ -789,6 +800,16 @@ func (cfg Config) Run() {
 	lengthDistribution, err := distribution.FromMap(lengthPercentiles)
 	if err != nil {
 		log.Fatalf("unable to create length distribution: %v", err)
+	}
+
+	requestLengthPercentiles, err := percentiles.ParsePercentiles(cfg.RequestLengthPercentiles)
+	if err != nil {
+		log.Fatalf("requestLengthPercentiles was not valid: %v", err)
+	}
+
+	requestLengthDistribution, err := distribution.FromMap(requestLengthPercentiles)
+	if err != nil {
+		log.Fatalf("unable to create request length distribution: %v", err)
 	}
 
 	// By default, allow enough capacity for each worker.
@@ -862,6 +883,7 @@ func (cfg Config) Run() {
 			shutdowns,
 			connOpts,
 			c,
+			requestLengthDistribution,
 			latencyDistribution,
 			lengthDistribution,
 		)

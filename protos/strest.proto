@@ -9,11 +9,16 @@ service Responder {
 }
 
 message ResponseSpec {
-  // how many bytes we expect in return.
+  // How many bytes we expect in a response?
   int32 length = 1;
-  // how long (in milliseconds) we want the response to wait.
+
+  // How long (in milliseconds) we want the response to wait.
   int64 latency = 2;
+
   float errorRate = 3;
+
+  // Unused, arbitrary data. Allows for arbitrarily large requests.
+  bytes data = 4;
 }
 
 message StreamingResponseSpec {
