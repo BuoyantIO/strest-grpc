@@ -32,6 +32,7 @@ func init() {
 	flags.UintVar(&clientCfg.NumIterations, "iterations", 0, "Number of iterations (0 for infinite)")
 	flags.StringVar(&clientCfg.LatencyPercentiles, "latencyPercentiles", "100=0", "response latency percentile distribution (in ms). (e.g. 50=10,100=100)")
 	flags.StringVar(&clientCfg.LengthPercentiles, "lengthPercentiles", "100=0", "response body length percentile distribution. (e.g. 50=100,100=1000)")
+	flags.StringVar(&clientCfg.RequestLengthPercentiles, "requestLengthPercentiles", "100=0", "request body length percentile distribution. (e.g. 50=100,100=1000)")
 	flags.Float64Var(&clientCfg.ErrorRate, "errorRate", 0.0, "the chance to return an error")
 	flags.BoolVar(&clientCfg.NoFinalReport, "noFinalReport", false, "do not print a final JSON output report")
 	flags.BoolVar(&clientCfg.NoIntervalReport, "noIntervalReport", false, "only print the final report, nothing intermediate")
