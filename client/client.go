@@ -281,7 +281,7 @@ func safeNonStreamingRequest(worker workerID,
 		ctx = context.Background()
 	}
 
-	requestDataLength := lengthDistribution.Get(r.Int31() % 1000)
+	requestDataLength := requestLengthDistribution.Get(r.Int31() % 1000)
 	data := make([]byte, requestDataLength)
 	r.Read(data)
 
