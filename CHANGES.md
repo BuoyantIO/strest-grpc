@@ -1,5 +1,16 @@
 ## In the next release...
 
+## 0.0.8
+
+* Introduce reference `ref-client` and `ref-server` for quickly diagnosing gRPC proxy behavior.
+* Replace scratch with alpine for base Docker image which enables running a shell inside the image
+* [client] Add the iteration number in client output
+* [client] Fix client to throttle sends rather than receives
+* [client] Add `--iterations` parameter to configure a budged for the experimet
+* Add config and instruction for running in Kubernetes
+* Migrate to Go modules.
+* [client] Add `--requestLengthPercentiles` for controlling the size of the request payload
+
 ## 0.0.7
 
 * [client] Fix `--latencyUnit` flag to correctly report metrics in the CLI and Prometheus.
