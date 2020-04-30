@@ -1,5 +1,10 @@
 ## In the next release...
 
+## 0.0.9
+
+* Updated Go modules
+* [client] Fixed `max-rps` command failure during calculation step
+
 ## 0.0.8
 
 * Introduce reference `ref-client` and `ref-server` for quickly diagnosing gRPC proxy behavior.
