@@ -65,7 +65,7 @@ func (cfg Config) Run() {
 		return mismatch
 	}
 
-	grad := func(grad, x []float64) []float64 {
+	grad := func(grad, x []float64) {
 		for i := range grad {
 			grad[i] = 0
 		}
@@ -82,8 +82,6 @@ func (cfg Config) Run() {
 			grad[1] += dMismatchDPred * dPredDKappa * dKappaDX
 			grad[2] += dMismatchDPred * dPredDLambda * dLambdaDX
 		}
-
-		return grad
 	}
 
 	problem := optimize.Problem{
